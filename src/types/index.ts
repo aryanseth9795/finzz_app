@@ -22,6 +22,8 @@ export interface ILastTransaction {
   amount: number;
   date: string;
   remark?: string;
+  to: string;
+  from: string;
 }
 
 export interface IChat {

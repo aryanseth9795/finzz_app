@@ -78,9 +78,10 @@ const HomeScreen = ({ navigation }: any) => {
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
       fetchChats(false);
+      fetchFriendRequests();
     });
     return unsubscribe;
-  }, [navigation, fetchChats]);
+  }, [navigation, fetchChats, fetchFriendRequests]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -201,7 +202,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 24,
     paddingVertical: 12, // Reduced vertical padding
-    paddingTop: 16,
+    paddingTop: 10,
   },
   headerLeft: {
     flex: 1,
@@ -209,10 +210,11 @@ const styles = StyleSheet.create({
   headerLogo: {
     fontWeight: "900", // Heavy weight for logo
     letterSpacing: -1,
-    fontStyle: "italic", // Optional flair
+    fontStyle: "italic",
+    fontSize: 40, // Optional flair
   },
   headerTitle: {
-    fontWeight: "800",
+    fontWeight: "900",
     letterSpacing: -0.5,
   },
   headerActions: {

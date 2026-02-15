@@ -1,9 +1,8 @@
-import React from "react";
+
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
-
 // Screens
 import HomeScreen from "../screens/home/HomeScreen";
 import ChatScreen from "../screens/chat/ChatScreen";
@@ -92,12 +91,12 @@ const MainTabs = () => {
         tabBarStyle: {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.tabBarBorder,
-          borderTopWidth: 0.5,
+          borderTopWidth: 2,
           paddingTop: 4,
-          paddingBottom: 70,
+          paddingBottom: 4,
           // marginBottom: 10,
 
-          // height: 100,
+          // height:60,
         },
         tabBarLabelStyle: {
           fontSize: 11,

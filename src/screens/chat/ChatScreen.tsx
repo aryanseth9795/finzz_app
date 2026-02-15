@@ -305,9 +305,12 @@ const ChatScreen = ({ route, navigation }: any) => {
     const myStats = stats.members[user._id];
     if (!myStats) return null;
 
+    // Backend carryForward = Received - Sent (Positive = You Owe)
+    // We want Positive = You Receive (Sent - Received)
+    // So we subtract the backend carryForward.
     const carryForward = stats.carryForward?.[user._id] || 0;
-    const thisMonthNet = myStats.net;
-    const totalNet = thisMonthNet + carryForward;
+    const currentMonthNet = myStats.totalSent - myStats.totalReceived;
+    const totalNet = currentMonthNet - carryForward;
 
     return (
       <View style={styles.statsContainer}>
@@ -786,7 +789,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     overflow: "hidden",
     // marginTop: 8,
-    paddingHorizontal:6
+    paddingHorizontal: 6,
   },
   tableHeader: {
     flexDirection: "row",

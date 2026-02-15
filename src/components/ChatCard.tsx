@@ -40,7 +40,12 @@ const ChatCard: React.FC<ChatCardProps> = ({
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={0.6}
-      style={[styles.container, { borderBottomColor: colors.separatorLight }]}
+      style={[
+        styles.container,
+        {
+          borderBottomColor: colors.separatorLight || colors.separator,
+        },
+      ]}
     >
       <Avatar uri={friend.avatar} name={friend.name} size={56} />
 
