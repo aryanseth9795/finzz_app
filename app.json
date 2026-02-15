@@ -1,30 +1,69 @@
 {
   "expo": {
-    "name": "App",
-    "slug": "App",
+    "name": "Finzz",
+    "slug": "finzz",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "splash": {
-      "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#000000"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/95f1c3b4-8c45-4dfa-876e-48a02ceaae1d"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.aryanseth9795.finzz",
+      "infoPlist": {
+        "NSContactsUsageDescription": "Finzz needs access to your contacts to find friends who are already using the app."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#007AFF"
       },
+      "package": "com.aryanseth9795.finzz",
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "permissions": [
+        "android.permission.READ_CONTACTS",
+        "android.permission.WRITE_CONTACTS",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "versionCode": 1,
+      "googleServicesFile": "./google-services.json"
     },
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "plugins": [
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow Finzz to access your contacts to find friends."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Finzz to access your photos to set a profile picture."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#007AFF"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "95f1c3b4-8c45-4dfa-876e-48a02ceaae1d"
+      }
     }
   }
 }

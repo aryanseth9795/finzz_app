@@ -39,3 +39,7 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+
+/finzz-1e22b-firebase-adminsdk-fbsvc-3f82e1551e.json
+/google-services.json
