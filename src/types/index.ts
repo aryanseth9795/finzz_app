@@ -177,3 +177,35 @@ export interface IPoolStats {
     net: number;
   }>;
 }
+
+// ========================
+// Expense Types
+// ========================
+export interface IExpense {
+  _id: string;
+  userId: string;
+  ledgerId: string;
+  amount: number;
+  date: string;
+  remarks?: string;
+  category?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IExpenseLedger {
+  _id: string;
+  userId: string;
+  year: number;
+  month: number; // 1-12
+  status: "open" | "closed";
+  closedAt?: string;
+  totalExpenses: number;
+}
+
+export interface IExpenseStats {
+  daily?: Array<{ date: string; total: number; count: number }>;
+  monthly?: Array<{ month: string; total: number; count: number }>;
+  yearly?: Array<{ year: number; total: number; count: number }>;
+  grandTotal: number;
+}

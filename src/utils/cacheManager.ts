@@ -83,4 +83,7 @@ export const CACHE_KEYS = {
   PROFILE: "profile",
   CHAT_STATS: (chatId: string) => `stats_${chatId}`,
   FRIEND_REQUESTS: "friend_requests",
+  EXPENSES: (ledgerId: string) => `expenses_${ledgerId}`,
+  EXPENSE_LEDGERS: "expense_ledgers",
+  EXPENSE_STATS: "expense_stats",
 };

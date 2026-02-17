@@ -4,6 +4,7 @@ import authReducer from "./slices/authSlice";
 import chatReducer from "./slices/chatSlice";
 import friendReducer from "./slices/friendSlice";
 import poolReducer from "./slices/poolSlice";
+import expenseReducer from "./slices/expenseSlice";
 
 export const store = configureStore({
   reducer: {
@@ -11,6 +12,7 @@ export const store = configureStore({
     chat: chatReducer,
     friend: friendReducer,
     pool: poolReducer,
+    expense: expenseReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

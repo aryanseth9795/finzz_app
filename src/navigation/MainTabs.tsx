@@ -16,6 +16,10 @@ import PoolStatsScreen from "../screens/pool/PoolStatsScreen";
 import EditPoolScreen from "../screens/pool/EditPoolScreen";
 import AccountScreen from "../screens/account/AccountScreen";
 import ReportScreen from "../screens/reports/ReportScreen";
+// Expense screens
+import ExpenseScreen from "../screens/expense/ExpenseScreen";
+import AddEditExpenseScreen from "../screens/expense/AddEditExpenseScreen";
+import ExpenseStatsScreen from "../screens/expense/ExpenseStatsScreen";
 
 const ChatsStack = createNativeStackNavigator();
 
@@ -61,21 +65,26 @@ const PoolStackNavigator = () => {
 };
 
 // ========================
-// Account Stack (Tab 3)
+// Expense Stack (Tab 3 - Replaces Account)
 // ========================
-const AccountStack = createNativeStackNavigator();
+const ExpenseStack = createNativeStackNavigator();
 
-const AccountStackNavigator = () => {
+const ExpenseStackNavigator = () => {
   return (
-    <AccountStack.Navigator
+    <ExpenseStack.Navigator
       screenOptions={{
         headerShown: false,
         animation: "slide_from_right",
       }}
     >
-      <AccountStack.Screen name="AccountHome" component={AccountScreen} />
-      <AccountStack.Screen name="Report" component={ReportScreen} />
-    </AccountStack.Navigator>
+      <ExpenseStack.Screen name="ExpenseHome" component={ExpenseScreen} />
+      <ExpenseStack.Screen
+        name="AddEditExpense"
+        component={AddEditExpenseScreen}
+      />
+      <ExpenseStack.Screen name="ExpenseStats" component={ExpenseStatsScreen} />
+      <ExpenseStack.Screen name="AccountHome" component={AccountScreen} />
+    </ExpenseStack.Navigator>
   );
 };
 
@@ -105,8 +114,8 @@ const MainTabs = () => {
             case "Pool":
               iconName = focused ? "people-circle" : "people-circle-outline";
               break;
-            case "Account":
-              iconName = focused ? "person-circle" : "person-circle-outline";
+            case "Expenses":
+              iconName = focused ? "wallet" : "wallet-outline";
               break;
           }
 
@@ -120,7 +129,7 @@ const MainTabs = () => {
           borderTopWidth: 2,
           paddingTop: 1,
           paddingBottom: 1,
-          height:95,
+          height: 95,
         },
         tabBarLabelStyle: {
           fontSize: 11,
@@ -131,7 +140,7 @@ const MainTabs = () => {
     >
       <Tab.Screen name="Chats" component={ChatsStackNavigator} />
       <Tab.Screen name="Pool" component={PoolStackNavigator} />
-      <Tab.Screen name="Account" component={AccountStackNavigator} />
+      <Tab.Screen name="Expenses" component={ExpenseStackNavigator} />
     </Tab.Navigator>
   );
 };
