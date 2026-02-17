@@ -65,6 +65,10 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         try {
           const response = await editExpenseApi(expense._id, expenseData);
           dispatch(updateExpense({ expense: response.data.expense }));
+          // Trigger parent screen refresh
+          if (navigation.getParent()?.setParams) {
+            navigation.getParent().setParams({ refreshTimestamp: Date.now() });
+          }
         } catch (error: any) {
           console.error("Failed to update expense:", error);
           // Rollback
@@ -99,6 +103,10 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
           dispatch(
             updateExpense({ oldId: tempId, expense: response.data.expense }),
           );
+          // Trigger parent screen refresh to update ledger totals
+          if (navigation.getParent()?.setParams) {
+            navigation.getParent().setParams({ refreshTimestamp: Date.now() });
+          }
         } catch (error: any) {
           console.error("Failed to add expense:", error);
           Alert.alert(

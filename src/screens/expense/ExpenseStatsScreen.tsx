@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   TouchableOpacity,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAppSelector, useAppDispatch } from "../../store";
@@ -29,9 +30,19 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
     loadStats();
   }, [period]);
 
+  // Reload stats when screen comes into focus
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      loadStats();
+    });
+    return unsubscribe;
+  }, [navigation, period]);
+
   const loadStats = async () => {
     setLoading(true);
     try {
+      // Clear stats before loading to force fresh data
+      dispatch(setStats(null as any));
       const response = await getExpenseStatsApi(period);
       dispatch(setStats(response.data.stats));
     } catch (error) {
@@ -69,7 +80,9 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
   );
 
   const renderGrandTotal = () => (
-    <View style={[styles.grandTotalCard, { backgroundColor: colors.dangerBg }]}>
+    <View
+      style={[styles.grandTotalCard, { backgroundColor: colors.background }]}
+    >
       <Text style={[styles.grandTotalLabel, { color: colors.textSecondary }]}>
         Total Spent (All Time)
       </Text>
@@ -152,7 +165,10 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={["top"]}
+    >
       {/* Header */}
       <View
         style={[
@@ -186,7 +202,7 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
           renderStatsList()
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 

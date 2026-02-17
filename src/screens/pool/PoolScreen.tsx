@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
-import { SafeAreaWrapper } from "../../components/ui";
+import { SafeAreaWrapper, Avatar } from "../../components/ui";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { setPools, setPoolLoading } from "../../store/slices/poolSlice";
 import { getMyPoolsApi } from "../../api/poolApi";
@@ -22,6 +22,7 @@ const PoolScreen = ({ navigation }: any) => {
   const { colors, fontSize: fs } = theme;
   const dispatch = useAppDispatch();
   const { pools, loading } = useAppSelector((state) => state.pool);
+  const { user } = useAppSelector((state) => state.auth);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchPools = useCallback(async () => {
@@ -183,6 +184,12 @@ const PoolScreen = ({ navigation }: any) => {
         >
           Pools
         </Text>
+        <TouchableOpacity
+          onPress={() => navigation.navigate("Account")}
+          activeOpacity={0.8}
+        >
+          <Avatar uri={user?.avatar} name={user?.name || "U"} size={40} />
+        </TouchableOpacity>
       </View>
 
       {/* Pool List */}
@@ -224,6 +231,9 @@ const PoolScreen = ({ navigation }: any) => {
 
 const styles = StyleSheet.create({
   header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,

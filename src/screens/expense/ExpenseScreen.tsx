@@ -9,7 +9,9 @@ import {
   ActivityIndicator,
   Alert,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Avatar } from "../../components/ui";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
@@ -48,6 +50,15 @@ const ExpenseScreen = ({ navigation }: any) => {
   useEffect(() => {
     loadLedgers();
   }, []);
+
+  // Listen for refresh trigger from child screens
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      // Reload ledgers when screen comes into focus
+      loadLedgers();
+    });
+    return unsubscribe;
+  }, [navigation]);
 
   const loadLedgers = async () => {
     try {
@@ -302,7 +313,10 @@ const ExpenseScreen = ({ navigation }: any) => {
     return (
       <View style={[styles.statsBar, { backgroundColor: colors.surface }]}>
         <View
-          style={[styles.statCard, { backgroundColor: colors.dangerLight }]}
+          style={[
+            styles.statCard,
+            { backgroundColor: colors.surfaceSecondary },
+          ]}
         >
           <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
             Total Spent
@@ -338,15 +352,6 @@ const ExpenseScreen = ({ navigation }: any) => {
       <Text
         style={[
           styles.headerCell,
-          styles.remarksCell,
-          { color: colors.textSecondary },
-        ]}
-      >
-        Remarks
-      </Text>
-      <Text
-        style={[
-          styles.headerCell,
           styles.actionsCell,
           { color: colors.textSecondary },
         ]}
@@ -363,160 +368,203 @@ const ExpenseScreen = ({ navigation }: any) => {
         { backgroundColor: colors.surface, borderBottomColor: colors.border },
       ]}
     >
-      <Text style={[styles.cell, styles.dateCell, { color: colors.text }]}>
-        {new Date(expense.date).toLocaleDateString()}
-      </Text>
-      <Text style={[styles.cell, styles.amountCell, { color: colors.danger }]}>
-        ₹{expense.amount.toFixed(2)}
-      </Text>
-      <Text
-        style={[
-          styles.cell,
-          styles.remarksCell,
-          { color: colors.textSecondary },
-        ]}
-        numberOfLines={1}
-      >
-        {expense.remarks || "-"}
-      </Text>
-      <View style={styles.actionsCell}>
-        {activeLedger?.status === "open" && isCurrentMonth() && (
-          <>
-            <TouchableOpacity
-              onPress={() => navigation.navigate("AddEditExpense", { expense })}
-              style={styles.actionButton}
-            >
-              <Ionicons
-                name="create-outline"
-                size={18}
-                color={colors.primary}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => handleDelete(expense._id)}
-              style={styles.actionButton}
-            >
-              <Ionicons name="trash-outline" size={18} color={colors.danger} />
-            </TouchableOpacity>
-          </>
-        )}
+      {/* First Line: Date, Amount, Actions */}
+      <View style={styles.rowTop}>
+        <Text style={[styles.cell, styles.dateCell, { color: colors.text }]}>
+          {new Date(expense.date).toLocaleDateString()}
+        </Text>
+        <Text
+          style={[styles.cell, styles.amountCell, { color: colors.danger }]}
+        >
+          ₹{expense.amount.toFixed(2)}
+        </Text>
+        <View style={styles.actionsCell}>
+          {activeLedger?.status === "open" && isCurrentMonth() && (
+            <>
+              <TouchableOpacity
+                onPress={() =>
+                  navigation.navigate("AddEditExpense", { expense })
+                }
+                style={styles.actionButton}
+              >
+                <Ionicons
+                  name="create-outline"
+                  size={18}
+                  color={colors.primary}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleDelete(expense._id)}
+                style={styles.actionButton}
+              >
+                <Ionicons
+                  name="trash-outline"
+                  size={18}
+                  color={colors.danger}
+                />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </View>
+      {/* Second Line: Remarks */}
+      {expense.remarks && (
+        <Text
+          style={[styles.remarksText, { color: colors.textSecondary }]}
+          numberOfLines={2}
+        >
+          {expense.remarks}
+        </Text>
+      )}
     </View>
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Header */}
-      <View
-        style={[
-          styles.header,
-          { backgroundColor: colors.surface, borderBottomColor: colors.border },
-        ]}
-      >
-        <Text style={[styles.title, { color: colors.text }]}>Expenses</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            onPress={() => navigation.navigate("ExpenseStats")}
-            style={styles.headerButton}
-          >
-            <Ionicons
-              name="stats-chart-outline"
-              size={24}
-              color={colors.primary}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => navigation.navigate("AccountHome")}
-            style={styles.headerButton}
-          >
-            <Ionicons
-              name="person-circle-outline"
-              size={24}
-              color={colors.primary}
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {renderLedgerPicker()}
-      {renderStatsBar()}
-
-      {/* Close Ledger Button */}
-      {canCloseLedger() && (
-        <TouchableOpacity
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={["top"]}
+    >
+      <View style={{ flex: 1 }}>
+        {/* Header */}
+        <View
           style={[
-            styles.closeLedgerButton,
-            { backgroundColor: colors.warningLight },
+            styles.header,
+            {
+              backgroundColor: colors.surface,
+              borderBottomColor: colors.border,
+            },
           ]}
-          onPress={handleCloseLedger}
         >
-          <Ionicons
-            name="lock-closed-outline"
-            size={16}
-            color={colors.warning}
-          />
-          <Text style={[styles.closeLedgerText, { color: colors.warning }]}>
-            Close Ledger
-          </Text>
-        </TouchableOpacity>
-      )}
-
-      {/* Expense List */}
-      <FlatList
-        data={expenses}
-        keyExtractor={(item) => item._id}
-        renderItem={renderExpenseRow}
-        ListHeaderComponent={renderTableHeader}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.3}
-        ListEmptyComponent={
-          txLoading ? (
-            <ActivityIndicator
-              size="large"
-              color={colors.primary}
-              style={styles.loader}
-            />
-          ) : (
-            <View style={styles.emptyState}>
+          <Text style={[styles.title, { color: colors.text }]}>Expenses</Text>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={() => {
+                if (!activeLedger) {
+                  Alert.alert("No Ledger", "Please select a ledger to export");
+                  return;
+                }
+                const {
+                  generateAndSharePDF,
+                } = require("../../utils/pdfExport");
+                const ledgerName = `${activeLedger.year}-${String(activeLedger.month).padStart(2, "0")}`;
+                generateAndSharePDF(activeLedger._id, ledgerName);
+              }}
+              style={styles.headerButton}
+            >
               <Ionicons
-                name="wallet-outline"
-                size={64}
-                color={colors.textTertiary}
+                name="download-outline"
+                size={24}
+                color={colors.primary}
               />
-              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
-                No expenses yet
-              </Text>
-            </View>
-          )
-        }
-        ListFooterComponent={
-          loadingMore ? (
-            <ActivityIndicator
-              size="small"
-              color={colors.primary}
-              style={styles.loader}
-            />
-          ) : null
-        }
-      />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("ExpenseStats")}
+              style={styles.headerButton}
+            >
+              <Ionicons
+                name="stats-chart-outline"
+                size={24}
+                color={colors.primary}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => navigation.navigate("AccountHome")}
+              activeOpacity={0.8}
+            >
+              <Avatar uri={user?.avatar} name={user?.name || "U"} size={40} />
+            </TouchableOpacity>
+          </View>
+        </View>
 
-      {/* FAB */}
-      {isCurrentMonth() && activeLedger?.status === "open" && (
-        <TouchableOpacity
-          style={[styles.fab, { backgroundColor: colors.primary }]}
-          onPress={() =>
-            navigation.navigate("AddEditExpense", {
-              ledgerId: activeLedger._id,
-            })
+        {renderLedgerPicker()}
+        {renderStatsBar()}
+
+        {/* Close Ledger Button */}
+        {canCloseLedger() && (
+          <TouchableOpacity
+            style={[
+              styles.closeLedgerButton,
+              { backgroundColor: colors.warningLight },
+            ]}
+            onPress={handleCloseLedger}
+          >
+            <Ionicons
+              name="lock-closed-outline"
+              size={16}
+              color={colors.warning}
+            />
+            <Text style={[styles.closeLedgerText, { color: colors.warning }]}>
+              Close Ledger
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Expense List */}
+        <FlatList
+          data={expenses}
+          keyExtractor={(item) => item._id}
+          renderItem={renderExpenseRow}
+          ListHeaderComponent={renderTableHeader}
+          stickyHeaderIndices={[0]}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
-        >
-          <Ionicons name="add" size={28} color="#FFFFFF" />
-        </TouchableOpacity>
-      )}
-    </View>
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
+          ListEmptyComponent={
+            txLoading ? (
+              <ActivityIndicator
+                size="large"
+                color={colors.primary}
+                style={styles.loader}
+              />
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons
+                  name="wallet-outline"
+                  size={64}
+                  color={colors.textTertiary}
+                />
+                <Text
+                  style={[styles.emptyText, { color: colors.textSecondary }]}
+                >
+                  No expenses yet
+                </Text>
+                <Text
+                  style={[styles.emptySubtext, { color: colors.textTertiary }]}
+                >
+                  Tap the + button to add your first expense
+                </Text>
+              </View>
+            )
+          }
+          ListFooterComponent={
+            loadingMore ? (
+              <ActivityIndicator
+                size="small"
+                color={colors.primary}
+                style={styles.loader}
+              />
+            ) : null
+          }
+        />
+
+        {/* FAB - Show for current month (even if no ledger exists) */}
+        {(!activeLedger ||
+          (isCurrentMonth() && activeLedger?.status === "open")) && (
+          <TouchableOpacity
+            style={[styles.fab, { backgroundColor: colors.primary }]}
+            onPress={() =>
+              navigation.navigate("AddEditExpense", {
+                ledgerId: activeLedger?._id,
+              })
+            }
+          >
+            <Ionicons name="add" size={28} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
+      </View>
+    </SafeAreaView>
   );
 };
 
@@ -556,7 +604,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   statCard: {
-    padding: 12,
+    padding: 4,
     borderRadius: 8,
     alignItems: "center",
   },
@@ -576,25 +624,46 @@ const styles = StyleSheet.create({
   closeLedgerText: { fontSize: 14, fontWeight: "600" },
   tableHeader: {
     flexDirection: "row",
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 16,
     borderBottomWidth: 2,
+    borderTopWidth: 1,
   },
   headerCell: { fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
   row: {
-    flexDirection: "row",
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
   },
+  rowTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
   cell: { fontSize: 14 },
-  dateCell: { width: "20%" },
-  amountCell: { width: "25%", fontWeight: "600" },
-  remarksCell: { width: "35%" },
-  actionsCell: { width: "20%", flexDirection: "row", gap: 8 },
+  dateCell: { fontWeight: "600", minWidth: 80 },
+  amountCell: { fontWeight: "700", minWidth: 90 },
+  actionsCell: {
+    flexDirection: "row",
+    gap: 8,
+    minWidth: 60,
+    justifyContent: "flex-end",
+  },
   actionButton: { padding: 4 },
+  remarksText: {
+    fontSize: 13,
+    marginTop: 6,
+    paddingLeft: 0,
+    fontStyle: "italic",
+  },
   emptyState: { alignItems: "center", paddingVertical: 48 },
   emptyText: { fontSize: 16, marginTop: 12 },
+  emptySubtext: {
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: "center",
+    paddingHorizontal: 32,
+  },
   loader: { marginVertical: 20 },
   fab: {
     position: "absolute",
