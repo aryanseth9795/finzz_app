@@ -147,7 +147,9 @@ const HomeScreen = ({ navigation }: any) => {
           </TouchableOpacity>
 
           <TouchableOpacity
-            onPress={() => navigation.navigate("Account")}
+            onPress={() =>
+              navigation.navigate("Expenses", { screen: "AccountHome" })
+            }
             activeOpacity={0.8}
           >
             <Avatar uri={user?.avatar} name={user?.name || "U"} size={40} />

@@ -12,6 +12,7 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import { useAppDispatch } from "../../store";
 import { addExpense, updateExpense } from "../../store/slices/expenseSlice";
 import { addExpenseApi, editExpenseApi } from "../../api/expenseApi";
@@ -23,6 +24,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
 
   const { theme } = useTheme();
   const { colors, spacing, borderRadius } = theme;
+  const { showSuccessToast } = useToast();
   const dispatch = useAppDispatch();
 
   const [amount, setAmount] = useState(expense?.amount?.toString() || "");
@@ -95,6 +97,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         dispatch(addExpense(tempExpense));
 
         // Navigate back immediately
+        showSuccessToast("Expense added!", parseFloat(amount));
         navigation.goBack();
 
         // Call server in background

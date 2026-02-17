@@ -48,7 +48,11 @@ const expenseSlice = createSlice({
         hasMore: boolean;
       }>,
     ) => {
-      state.expenses = [...state.expenses, ...action.payload.expenses];
+      const existingIds = new Set(state.expenses.map((e) => e._id));
+      const newUnique = action.payload.expenses.filter(
+        (e) => !existingIds.has(e._id),
+      );
+      state.expenses = [...state.expenses, ...newUnique];
       state.nextCursor = action.payload.nextCursor;
       state.hasMore = action.payload.hasMore;
       state.txLoading = false;

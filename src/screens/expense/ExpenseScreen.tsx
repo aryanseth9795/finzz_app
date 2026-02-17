@@ -8,6 +8,8 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
+  Modal,
+  Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,6 +32,7 @@ import {
   closeLedgerApi,
   deleteExpenseApi,
 } from "../../api/expenseApi";
+import { generateAndSharePDF } from "../../utils/pdfExport";
 import { IExpense, IExpenseLedger } from "../../types";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { CACHE_DURATION } from "../../constants/api";
@@ -45,6 +48,7 @@ const ExpenseScreen = ({ navigation }: any) => {
 
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [showLedgerPicker, setShowLedgerPicker] = useState(false);
 
   // Initialize: Load ledgers and set active to current month
   useEffect(() => {
@@ -277,33 +281,164 @@ const ExpenseScreen = ({ navigation }: any) => {
   const renderLedgerPicker = () => {
     if (ledgers.length === 0) return null;
 
+    const MONTH_NAMES = [
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Nov",
+      "Dec",
+    ];
+
     return (
-      <View style={[styles.ledgerPicker, { backgroundColor: colors.surface }]}>
-        <Text style={[styles.ledgerLabel, { color: colors.textSecondary }]}>
-          Ledger Period:
-        </Text>
-        <TouchableOpacity
-          style={[
-            styles.ledgerButton,
-            { backgroundColor: colors.primarySurface },
-          ]}
-          onPress={() => {
-            // Show picker modal (for simplicity, cycling through for now)
-            const currentIndex = ledgers.findIndex(
-              (l) => l._id === activeLedger?._id,
-            );
-            const nextIndex = (currentIndex + 1) % ledgers.length;
-            dispatch(setActiveLedger(ledgers[nextIndex]));
-          }}
+      <>
+        <View
+          style={[styles.ledgerPicker, { backgroundColor: colors.surface }]}
         >
-          <Text style={[styles.ledgerButtonText, { color: colors.primary }]}>
-            {activeLedger
-              ? `${activeLedger.year}-${String(activeLedger.month).padStart(2, "0")} ${activeLedger.status === "closed" ? "(Closed)" : ""}`
-              : "Select Ledger"}
+          <Text style={[styles.ledgerLabel, { color: colors.textSecondary }]}>
+            Ledger Period:
           </Text>
-          <Ionicons name="chevron-down" size={18} color={colors.primary} />
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[
+              styles.ledgerButton,
+              { backgroundColor: colors.primarySurface },
+            ]}
+            onPress={() => setShowLedgerPicker(true)}
+          >
+            <Ionicons
+              name="calendar-outline"
+              size={18}
+              color={colors.primary}
+            />
+            <Text style={[styles.ledgerButtonText, { color: colors.primary }]}>
+              {activeLedger
+                ? `${MONTH_NAMES[activeLedger.month - 1]} ${activeLedger.year.toString().slice(-2)}${activeLedger.status === "closed" ? " (Closed)" : ""}`
+                : "Select Ledger"}
+            </Text>
+            <Ionicons name="chevron-down" size={18} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Ledger Picker Modal */}
+        <Modal
+          visible={showLedgerPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowLedgerPicker(false)}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={() => setShowLedgerPicker(false)}
+          >
+            <Pressable
+              style={[
+                styles.modalContent,
+                { backgroundColor: colors.background },
+              ]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View
+                style={[
+                  styles.modalHeader,
+                  { borderBottomColor: colors.border },
+                ]}
+              >
+                <Text style={[styles.modalTitle, { color: colors.text }]}>
+                  Select Ledger Period
+                </Text>
+                <TouchableOpacity onPress={() => setShowLedgerPicker(false)}>
+                  <Ionicons
+                    name="close"
+                    size={24}
+                    color={colors.textSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
+              <FlatList
+                data={[...ledgers].sort((a, b) => {
+                  if (a.year !== b.year) return b.year - a.year;
+                  return b.month - a.month;
+                })}
+                keyExtractor={(item) => item._id}
+                renderItem={({ item }) => {
+                  const isActive = item._id === activeLedger?._id;
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.ledgerOption,
+                        {
+                          backgroundColor: isActive
+                            ? colors.primarySurface
+                            : colors.surface,
+                          borderColor: colors.border,
+                        },
+                      ]}
+                      onPress={() => {
+                        dispatch(setActiveLedger(item));
+                        setShowLedgerPicker(false);
+                      }}
+                    >
+                      <View style={styles.ledgerOptionLeft}>
+                        <Ionicons
+                          name="calendar"
+                          size={20}
+                          color={
+                            isActive ? colors.primary : colors.textSecondary
+                          }
+                        />
+                        <Text
+                          style={[
+                            styles.ledgerOptionText,
+                            {
+                              color: isActive ? colors.primary : colors.text,
+                              fontWeight: isActive ? "700" : "600",
+                            },
+                          ]}
+                        >
+                          {`${MONTH_NAMES[item.month - 1]} ${item.year.toString().slice(-2)}`}
+                        </Text>
+                      </View>
+                      <View style={styles.ledgerOptionRight}>
+                        {item.status === "closed" && (
+                          <View
+                            style={[
+                              styles.closedBadge,
+                              { backgroundColor: colors.textSecondary + "20" },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.closedBadgeText,
+                                { color: colors.textSecondary },
+                              ]}
+                            >
+                              Closed
+                            </Text>
+                          </View>
+                        )}
+                        {isActive && (
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={20}
+                            color={colors.primary}
+                          />
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                }}
+                style={styles.ledgerList}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      </>
     );
   };
 
@@ -438,16 +573,13 @@ const ExpenseScreen = ({ navigation }: any) => {
           <Text style={[styles.title, { color: colors.text }]}>Expenses</Text>
           <View style={styles.headerActions}>
             <TouchableOpacity
-              onPress={() => {
+              onPress={async () => {
                 if (!activeLedger) {
                   Alert.alert("No Ledger", "Please select a ledger to export");
                   return;
                 }
-                const {
-                  generateAndSharePDF,
-                } = require("../../utils/pdfExport");
                 const ledgerName = `${activeLedger.year}-${String(activeLedger.month).padStart(2, "0")}`;
-                generateAndSharePDF(activeLedger._id, ledgerName);
+                await generateAndSharePDF(activeLedger._id, ledgerName);
               }}
               style={styles.headerButton}
             >
@@ -624,12 +756,15 @@ const styles = StyleSheet.create({
   closeLedgerText: { fontSize: 14, fontWeight: "600" },
   tableHeader: {
     flexDirection: "row",
-    paddingVertical: 10,
+    paddingVertical: 15,
     paddingHorizontal: 16,
     borderBottomWidth: 2,
     borderTopWidth: 1,
+    alignItems: "center",
+    justifyContent: "space-between",
+
   },
-  headerCell: { fontSize: 12, fontWeight: "700", textTransform: "uppercase" },
+  headerCell: { fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
   row: {
     paddingVertical: 12,
     paddingHorizontal: 16,
@@ -637,16 +772,17 @@ const styles = StyleSheet.create({
   },
   rowTop: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    // justifyContent: "space-between",
+
   },
   cell: { fontSize: 14 },
-  dateCell: { fontWeight: "600", minWidth: 80 },
-  amountCell: { fontWeight: "700", minWidth: 90 },
+  dateCell: { flex: 1, fontWeight: "600" },
+  amountCell: { flex: 2, fontWeight: "700", textAlign: "center" },
   actionsCell: {
     flexDirection: "row",
     gap: 8,
-    minWidth: 60,
+    width: 70,
     justifyContent: "flex-end",
   },
   actionButton: { padding: 4 },
@@ -680,6 +816,45 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
   },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "70%",
+    paddingBottom: 20,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  modalTitle: { fontSize: 18, fontWeight: "700" },
+  ledgerList: { paddingHorizontal: 16, paddingTop: 8 },
+  ledgerOption: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  ledgerOptionLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  ledgerOptionText: { fontSize: 16 },
+  ledgerOptionRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  closedBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  closedBadgeText: { fontSize: 11, fontWeight: "600" },
 });
 
 export default ExpenseScreen;

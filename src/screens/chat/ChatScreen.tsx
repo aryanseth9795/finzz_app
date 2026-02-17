@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -138,6 +139,14 @@ const ChatScreen = ({ route, navigation }: any) => {
   useEffect(() => {
     fetchStats();
   }, [selectedYear, selectedMonth, fetchStats]);
+
+  // Refresh data when screen comes into focus (e.g., after adding a transaction)
+  useFocusEffect(
+    useCallback(() => {
+      fetchTransactions(true);
+      fetchStats();
+    }, [fetchTransactions, fetchStats]),
+  );
 
   const handleLoadMore = async () => {
     if (!hasMore || loadingMore || !nextCursor) return;

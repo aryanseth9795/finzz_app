@@ -15,6 +15,7 @@ import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import { SafeAreaWrapper, Input, Button } from "../../components/ui";
 import { addTxApi, editTxApi } from "../../api/txApi";
 import { useAppSelector, useAppDispatch } from "../../store";
@@ -25,6 +26,7 @@ import { ITx } from "../../types";
 const AddEditTxScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs, borderRadius: br } = theme;
+  const { showSuccessToast } = useToast();
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
 
@@ -78,6 +80,10 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
       }
       await cacheManager.remove(CACHE_KEYS.TRANSACTIONS(chatId));
       await cacheManager.remove(CACHE_KEYS.CHATS);
+      showSuccessToast(
+        isEditing ? "Transaction updated!" : "Transaction added!",
+        numAmount,
+      );
       navigation.goBack();
     } catch (error: any) {
       Alert.alert(

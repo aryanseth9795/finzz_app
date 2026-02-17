@@ -91,7 +91,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
               {formatDate(lastTx.date)}
             </Text>
           )}
-          {lastTx && (
+          {/* {lastTx && (
             <View
               style={[
                 styles.amountBadge,
@@ -112,7 +112,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
                 {isCredit ? "+" : "-"}₹{lastTx.amount?.toLocaleString("en-IN")}
               </Text>
             </View>
-          )}
+          )} */}
         </View>
       </View>
     </TouchableOpacity>

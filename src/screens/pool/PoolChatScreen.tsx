@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -60,6 +61,14 @@ const PoolChatScreen = ({ route, navigation }: any) => {
     setTotalCredited(credited);
     setTotalDebited(debited);
   }, [transactions]);
+
+  // Refresh data when screen comes into focus (e.g., after adding a transaction)
+  useFocusEffect(
+    useCallback(() => {
+      fetchPool();
+      fetchTransactions();
+    }, [poolId]),
+  );
 
   const fetchPool = async () => {
     try {

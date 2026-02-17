@@ -14,6 +14,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import { addPoolTxApi } from "../../api/poolApi";
 
@@ -21,6 +22,7 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
   const { poolId, mode = "add" } = route.params; // mode: "add" | "edit"
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
+  const { showSuccessToast } = useToast();
 
   const [amount, setAmount] = useState("");
   const [type, setType] = useState<"credit" | "debit">("credit");
@@ -45,7 +47,7 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
         remarks: remarks.trim() || undefined,
       });
 
-      Alert.alert("Success", "Transaction added successfully!");
+      showSuccessToast("Transaction added!", parseFloat(amount));
       navigation.goBack();
     } catch (error: any) {
       Alert.alert(
