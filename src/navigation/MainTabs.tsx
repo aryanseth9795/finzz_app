@@ -1,4 +1,3 @@
-
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,12 +8,15 @@ import ChatScreen from "../screens/chat/ChatScreen";
 import AddEditTxScreen from "../screens/chat/AddEditTxScreen";
 import FriendsScreen from "../screens/friends/FriendsScreen";
 import PoolScreen from "../screens/pool/PoolScreen";
+import CreatePoolScreen from "../screens/pool/CreatePoolScreen";
+import PoolChatScreen from "../screens/pool/PoolChatScreen";
+import AddEditPoolTxScreen from "../screens/pool/AddEditPoolTxScreen";
+import PoolSettingsScreen from "../screens/pool/PoolSettingsScreen";
+import PoolStatsScreen from "../screens/pool/PoolStatsScreen";
+import EditPoolScreen from "../screens/pool/EditPoolScreen";
 import AccountScreen from "../screens/account/AccountScreen";
 import ReportScreen from "../screens/reports/ReportScreen";
 
-// ========================
-// Chats Stack (Tab 1)
-// ========================
 const ChatsStack = createNativeStackNavigator();
 
 const ChatsStackNavigator = () => {
@@ -31,6 +33,30 @@ const ChatsStackNavigator = () => {
       <ChatsStack.Screen name="AddFriend" component={FriendsScreen} />
       <ChatsStack.Screen name="Report" component={ReportScreen} />
     </ChatsStack.Navigator>
+  );
+};
+
+// ========================
+// Pool Stack (Tab 2)
+// ========================
+const PoolStack = createNativeStackNavigator();
+
+const PoolStackNavigator = () => {
+  return (
+    <PoolStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        animation: "slide_from_right",
+      }}
+    >
+      <PoolStack.Screen name="PoolList" component={PoolScreen} />
+      <PoolStack.Screen name="CreatePool" component={CreatePoolScreen} />
+      <PoolStack.Screen name="PoolChat" component={PoolChatScreen} />
+      <PoolStack.Screen name="AddEditPoolTx" component={AddEditPoolTxScreen} />
+      <PoolStack.Screen name="PoolSettings" component={PoolSettingsScreen} />
+      <PoolStack.Screen name="PoolStats" component={PoolStatsScreen} />
+      <PoolStack.Screen name="EditPool" component={EditPoolScreen} />
+    </PoolStack.Navigator>
   );
 };
 
@@ -92,21 +118,19 @@ const MainTabs = () => {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.tabBarBorder,
           borderTopWidth: 2,
-          paddingTop: 4,
-          paddingBottom: 4,
-          // marginBottom: 10,
-
-          // height:60,
+          paddingTop: 1,
+          paddingBottom: 1,
+          height:95,
         },
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "600",
-          marginBottom: 4,
+          marginBottom: 2,
         },
       })}
     >
       <Tab.Screen name="Chats" component={ChatsStackNavigator} />
-      <Tab.Screen name="Pool" component={PoolScreen} />
+      <Tab.Screen name="Pool" component={PoolStackNavigator} />
       <Tab.Screen name="Account" component={AccountStackNavigator} />
     </Tab.Navigator>
   );

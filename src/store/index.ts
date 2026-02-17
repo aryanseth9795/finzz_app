@@ -3,12 +3,14 @@ import { useDispatch, useSelector, TypedUseSelectorHook } from "react-redux";
 import authReducer from "./slices/authSlice";
 import chatReducer from "./slices/chatSlice";
 import friendReducer from "./slices/friendSlice";
+import poolReducer from "./slices/poolSlice";
 
 export const store = configureStore({
   reducer: {
     auth: authReducer,
     chat: chatReducer,
     friend: friendReducer,
+    pool: poolReducer,
   },
   middleware: (getDefaultMiddleware) =>
     getDefaultMiddleware({

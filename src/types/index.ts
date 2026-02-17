@@ -126,3 +126,54 @@ export interface INotification {
   read: boolean;
   createdAt: string;
 }
+
+// ========================
+// Pool Types
+// ========================
+export interface IPool {
+  _id: string;
+  name: string;
+  description?: string;
+  image?: string;
+  rules?: string;
+  admin: IUser;
+  members: IUser[];
+  status: "active" | "closed";
+  lastTransaction?: {
+    amount: number;
+    date: string;
+    remark: string;
+    addedBy: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IPoolTx {
+  _id: string;
+  poolId: string;
+  amount: number;
+  type: "credit" | "debit";
+  date: string;
+  remarks?: string;
+  addedBy: string | { _id: string; name: string };
+  verified: boolean;
+  verifiedBy?: string | { _id: string; name: string };
+  verifiedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IPoolStats {
+  totalCredited: number;
+  totalDebited: number;
+  netBalance: number;
+  durationDays: number;
+  memberBreakdown: Array<{
+    userId: string;
+    name: string;
+    totalCredited: number;
+    totalDebited: number;
+    net: number;
+  }>;
+}
