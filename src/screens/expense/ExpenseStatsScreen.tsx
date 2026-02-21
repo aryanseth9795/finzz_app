@@ -371,7 +371,7 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
           {dailyValues.length > 0 ? (
             <LineChart
               data={{
-                labels: dailyLabels.filter((_, i) => i % 5 === 0), // Show every 5th label
+                labels: dailyLabels.map((l, i) => (i % 5 === 0 ? l : "")), // Show every 5th label
                 datasets: [{ data: dailyValues }],
               }}
               width={SCREEN_WIDTH - 32}
