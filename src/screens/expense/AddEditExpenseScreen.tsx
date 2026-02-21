@@ -15,7 +15,11 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
 import { useAppDispatch } from "../../store";
 import { addExpense, updateExpense } from "../../store/slices/expenseSlice";
-import { addExpenseApi, editExpenseApi } from "../../api/expenseApi";
+import {
+  addExpenseApi,
+  editExpenseApi,
+  checkDuplicateExpenseApi,
+} from "../../api/expenseApi";
 import { IExpense } from "../../types";
 
 const AddEditExpenseScreen = ({ route, navigation }: any) => {
@@ -42,46 +46,16 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
       return;
     }
 
-    setSaving(true);
+    const expenseData = {
+      amount: parseFloat(amount),
+      date: date.toISOString(),
+      remarks: remarks.trim() || undefined,
+      category: category.trim() || undefined,
+    };
 
-    try {
-      const expenseData = {
-        amount: parseFloat(amount),
-        date: date.toISOString(),
-        remarks: remarks.trim() || undefined,
-        category: category.trim() || undefined,
-      };
-
-      if (isEditing) {
-        // Update existing expense
-        const oldExpense = expense;
-        const updatedExpense: IExpense = { ...oldExpense, ...expenseData };
-
-        // Optimistic update
-        dispatch(updateExpense({ expense: updatedExpense }));
-
-        // Navigate back immediately
-        navigation.goBack();
-
-        //  Call server in background
-        try {
-          const response = await editExpenseApi(expense._id, expenseData);
-          dispatch(updateExpense({ expense: response.data.expense }));
-          // Trigger parent screen refresh
-          if (navigation.getParent()?.setParams) {
-            navigation.getParent().setParams({ refreshTimestamp: Date.now() });
-          }
-        } catch (error: any) {
-          console.error("Failed to update expense:", error);
-          // Rollback
-          dispatch(updateExpense({ expense: oldExpense }));
-          Alert.alert(
-            "Error",
-            error.response?.data?.message || "Failed to update expense",
-          );
-        }
-      } else {
-        // Add new expense
+    const proceedWithAdd = async () => {
+      setSaving(true);
+      try {
         const tempId = `temp_${Date.now()}`;
         const tempExpense: IExpense = {
           _id: tempId,
@@ -117,10 +91,74 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
             error.response?.data?.message || "Failed to add expense",
           );
         }
+      } catch (error) {
+        setSaving(false);
+        Alert.alert("Error", "Failed to add expense");
       }
-    } catch (error: any) {
-      setSaving(false);
-      Alert.alert("Error", "An unexpected error occurred");
+    };
+
+    if (isEditing) {
+      setSaving(true);
+      try {
+        // Update existing expense
+        const oldExpense = expense;
+        const updatedExpense: IExpense = { ...oldExpense, ...expenseData };
+
+        // Optimistic update
+        dispatch(updateExpense({ expense: updatedExpense }));
+
+        // Navigate back immediately
+        navigation.goBack();
+
+        //  Call server in background
+        try {
+          const response = await editExpenseApi(expense._id, expenseData);
+          dispatch(updateExpense({ expense: response.data.expense }));
+          // Trigger parent screen refresh
+          if (navigation.getParent()?.setParams) {
+            navigation.getParent().setParams({ refreshTimestamp: Date.now() });
+          }
+        } catch (error: any) {
+          console.error("Failed to update expense:", error);
+          // Rollback
+          dispatch(updateExpense({ expense: oldExpense }));
+          Alert.alert(
+            "Error",
+            error.response?.data?.message || "Failed to update expense",
+          );
+        }
+      } catch (error) {
+        setSaving(false);
+        Alert.alert("Error", "An unexpected error occurred");
+      }
+    } else {
+      // Add New: Check for duplicates first
+      setSaving(true);
+      try {
+        const res = await checkDuplicateExpenseApi(
+          parseFloat(amount),
+          date.toISOString(),
+        );
+
+        if (res.data.success && res.data.duplicates.length > 0) {
+          setSaving(false);
+          const dup = res.data.duplicates[0];
+          const dateStr = new Date(dup.date).toLocaleDateString();
+          Alert.alert(
+            "Duplicate Warning",
+            `Found similar expense on ${dateStr}:\nAmount: ₹${dup.amount}\nRemarks: ${dup.remarks || "None"}\n\nAdd anyway?`,
+            [
+              { text: "Cancel", style: "cancel" },
+              { text: "Add", onPress: proceedWithAdd },
+            ],
+          );
+        } else {
+          proceedWithAdd();
+        }
+      } catch (error) {
+        // If check fails (e.g. offline), warn or proceed? Proceeding is safer UX.
+        proceedWithAdd();
+      }
     }
   };
 

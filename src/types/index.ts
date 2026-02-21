@@ -209,3 +209,38 @@ export interface IExpenseStats {
   yearly?: Array<{ year: number; total: number; count: number }>;
   grandTotal: number;
 }
+
+export interface IAdvancedExpenseStats {
+  selectedMonth: { year: number; month: number };
+  summary: {
+    total: number;
+    count: number;
+    avgDailySpend: number;
+    activeDays: number;
+  };
+  monthlyTrend: Array<{
+    month: string;
+    year: number;
+    monthNum: number;
+    total: number;
+    count: number;
+  }>;
+  dailyBreakdown: Array<{
+    date: string;
+    total: number;
+    count: number;
+  }>;
+  categoryBreakdown: Array<{
+    name: string;
+    total: number;
+    count: number;
+    percentage: number;
+  }>;
+  top5Expenses: Array<{
+    _id: string;
+    amount: number;
+    date: string;
+    remarks: string;
+    category: string;
+  }>;
+}

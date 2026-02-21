@@ -15,7 +15,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "../../components/ui";
 import { useTheme } from "../../contexts/ThemeContext";
-import { useAppSelector, useAppDispatch } from "../../store";
+import { store, useAppSelector, useAppDispatch } from "../../store";
 import {
   setExpenses,
   appendExpenses,
@@ -32,7 +32,6 @@ import {
   closeLedgerApi,
   deleteExpenseApi,
 } from "../../api/expenseApi";
-import { generateAndSharePDF } from "../../utils/pdfExport";
 import { IExpense, IExpenseLedger } from "../../types";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { CACHE_DURATION } from "../../constants/api";
@@ -78,8 +77,18 @@ const ExpenseScreen = ({ navigation }: any) => {
       dispatch(setLedgers(ledgerList));
       await cacheManager.set(CACHE_KEYS.EXPENSE_LEDGERS, ledgerList);
 
-      // Set active ledger to current month if not set
-      if (!activeLedger && ledgerList.length > 0) {
+      const currentActiveLedger = store.getState().expense.activeLedger;
+
+      if (currentActiveLedger && ledgerList.length > 0) {
+        // Preserve current selection: find the updated version of the active ledger
+        const updatedActive = ledgerList.find(
+          (l) => l._id === currentActiveLedger._id,
+        );
+        if (updatedActive) {
+          dispatch(setActiveLedger(updatedActive));
+        }
+      } else if (!currentActiveLedger && ledgerList.length > 0) {
+        // First load: default to current month
         const now = new Date();
         const currentYear = now.getFullYear();
         const currentMonth = now.getMonth() + 1;
@@ -514,7 +523,7 @@ const ExpenseScreen = ({ navigation }: any) => {
           ₹{expense.amount.toFixed(2)}
         </Text>
         <View style={styles.actionsCell}>
-          {activeLedger?.status === "open" && isCurrentMonth() && (
+          {activeLedger?.status === "open" && (
             <>
               <TouchableOpacity
                 onPress={() =>
@@ -572,23 +581,6 @@ const ExpenseScreen = ({ navigation }: any) => {
         >
           <Text style={[styles.title, { color: colors.text }]}>Expenses</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity
-              onPress={async () => {
-                if (!activeLedger) {
-                  Alert.alert("No Ledger", "Please select a ledger to export");
-                  return;
-                }
-                const ledgerName = `${activeLedger.year}-${String(activeLedger.month).padStart(2, "0")}`;
-                await generateAndSharePDF(activeLedger._id, ledgerName);
-              }}
-              style={styles.headerButton}
-            >
-              <Ionicons
-                name="download-outline"
-                size={24}
-                color={colors.primary}
-              />
-            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => navigation.navigate("ExpenseStats")}
               style={styles.headerButton}
@@ -762,7 +754,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     alignItems: "center",
     justifyContent: "space-between",
-
   },
   headerCell: { fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
   row: {
@@ -774,7 +765,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     // justifyContent: "space-between",
-
   },
   cell: { fontSize: 14 },
   dateCell: { flex: 1, fontWeight: "600" },

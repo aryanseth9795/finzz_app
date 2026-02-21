@@ -72,33 +72,8 @@ async function registerForPushNotificationsAsync() {
 
     let finalStatus = existingStatus;
 
-    // If not granted (undetermined or denied), show explanation popup first
+    // If not granted, request permission directly
     if (existingStatus !== "granted") {
-      // Create a promise to handle the user's choice from the Alert
-      const userChoseToEnable = await new Promise<boolean>((resolve) => {
-        Alert.alert(
-          "Enable Notifications",
-          "Finzz needs notifications to send you real-time updates about your transactions and friend requests.",
-          [
-            {
-              text: "Not Now",
-              style: "cancel",
-              onPress: () => resolve(false),
-            },
-            {
-              text: "Enable",
-              onPress: () => resolve(true),
-            },
-          ],
-        );
-      });
-
-      if (!userChoseToEnable) {
-        console.log("User cancelled notification permission request");
-        return null;
-      }
-
-      // If user clicked Enable, request system permissions
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
