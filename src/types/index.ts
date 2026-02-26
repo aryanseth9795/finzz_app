@@ -6,6 +6,8 @@ export interface IUser {
   name: string;
   phone: string;
   avatar?: string;
+  email?: string;
+  emailVerified?: boolean;
 }
 
 export interface AuthResponse {

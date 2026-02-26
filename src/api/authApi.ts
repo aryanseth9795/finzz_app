@@ -3,8 +3,12 @@ import api from "./axios";
 export const loginApi = (phone: string, password: string) =>
   api.post("/users/login", { phone, password });
 
-export const registerApi = (name: string, phone: string, password: string) =>
-  api.post("/users/register", { name, phone, password });
+export const registerApi = (
+  name: string,
+  phone: string,
+  email: string,
+  password: string,
+) => api.post("/users/register", { name, phone, email, password });
 
 export const logoutApi = () => api.get("/users/logout");
 
@@ -35,3 +39,28 @@ export const uploadAvatarApi = (imageUri: string) => {
     headers: { "Content-Type": "multipart/form-data" },
   });
 };
+
+// ─── OTP / Email Verification ───────────────────────────────
+export const sendOtpApi = (email: string) =>
+  api.post("/users/send-otp", { email });
+
+export const verifyOtpApi = (email: string, otp: string) =>
+  api.post("/users/verify-otp", { email, otp });
+
+export const forgotPasswordApi = (email: string) =>
+  api.post("/users/forgot-password", { email });
+
+export const resetPasswordApi = (
+  email: string,
+  otp: string,
+  newPassword: string,
+) => api.post("/users/reset-password", { email, otp, newPassword });
+
+export const changePasswordApi = (oldPassword: string, newPassword: string) =>
+  api.post("/users/change-password", { oldPassword, newPassword });
+
+export const sendVerifyEmailOtpApi = (email: string) =>
+  api.post("/users/send-verify-email-otp", { email });
+
+export const verifyEmailApi = (email: string, otp: string) =>
+  api.post("/users/verify-email", { email, otp });

@@ -7,13 +7,19 @@ import {
   ScrollView,
   Alert,
   Switch,
+  Modal,
+  TextInput,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar, Button } from "../../components/ui";
-import { uploadAvatarApi, logoutApi } from "../../api/authApi";
+import {
+  uploadAvatarApi,
+  logoutApi,
+  changePasswordApi,
+} from "../../api/authApi";
 import { tokenManager } from "../../utils/tokenManager";
 import { cacheManager } from "../../utils/cacheManager";
 import { useAppSelector, useAppDispatch } from "../../store";
@@ -30,6 +36,15 @@ const AccountScreen = ({ navigation }: any) => {
   const { user } = useAppSelector((state) => state.auth);
   const [uploading, setUploading] = useState(false);
 
+  // Change Password modal state
+  const [showChangePwd, setShowChangePwd] = useState(false);
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showOld, setShowOld] = useState(false);
+  const [showNew, setShowNew] = useState(false);
+  const [changingPwd, setChangingPwd] = useState(false);
+
   const handleAvatarUpload = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -44,7 +59,7 @@ const AccountScreen = ({ navigation }: any) => {
         const response = await uploadAvatarApi(result.assets[0].uri);
         const updatedUser = response.data.user;
         dispatch(updateAvatar(updatedUser.avatar));
-        await tokenManager.setUserData(JSON.stringify(updatedUser)); // Update cache
+        await tokenManager.setUserData(JSON.stringify(updatedUser));
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (error: any) {
@@ -77,11 +92,47 @@ const AccountScreen = ({ navigation }: any) => {
     ]);
   };
 
+  const handleChangePassword = async () => {
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      Alert.alert("Error", "All fields are required");
+      return;
+    }
+    if (newPassword.length < 6) {
+      Alert.alert("Error", "New password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert("Error", "New passwords do not match");
+      return;
+    }
+    setChangingPwd(true);
+    try {
+      await changePasswordApi(oldPassword, newPassword);
+      Alert.alert("Success", "Password changed successfully!");
+      setShowChangePwd(false);
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (error: any) {
+      Alert.alert(
+        "Error",
+        error?.response?.data?.message || "Failed to change password",
+      );
+    } finally {
+      setChangingPwd(false);
+    }
+  };
+
   const menuItems = [
     {
       icon: "bar-chart-outline" as const,
       label: "Reports",
       onPress: () => navigation.navigate("Report", {}),
+    },
+    {
+      icon: "key-outline" as const,
+      label: "Change Password",
+      onPress: () => setShowChangePwd(true),
     },
     {
       icon: "notifications-outline" as const,
@@ -104,6 +155,46 @@ const AccountScreen = ({ navigation }: any) => {
       onPress: () => {},
     },
   ];
+
+  const pwdInput = (
+    value: string,
+    setter: (v: string) => void,
+    placeholder: string,
+    show: boolean,
+    setShow: (v: boolean) => void,
+  ) => (
+    <View
+      style={[
+        styles.pwdInputWrapper,
+        {
+          backgroundColor: colors.inputBackground,
+          borderColor: colors.inputBorder,
+        },
+      ]}
+    >
+      <Ionicons
+        name="lock-closed-outline"
+        size={18}
+        color={colors.textTertiary}
+        style={{ marginRight: 10 }}
+      />
+      <TextInput
+        value={value}
+        onChangeText={setter}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textTertiary}
+        secureTextEntry={!show}
+        style={[styles.pwdTextInput, { color: colors.text }]}
+      />
+      <TouchableOpacity onPress={() => setShow(!show)}>
+        <Ionicons
+          name={show ? "eye-off-outline" : "eye-outline"}
+          size={18}
+          color={colors.textTertiary}
+        />
+      </TouchableOpacity>
+    </View>
+  );
 
   return (
     <SafeAreaWrapper edges={["top"]}>
@@ -168,6 +259,38 @@ const AccountScreen = ({ navigation }: any) => {
             >
               {user?.phone}
             </Text>
+            {/* Email row */}
+            {user?.email ? (
+              <View style={styles.emailRow}>
+                <Ionicons
+                  name="mail-outline"
+                  size={13}
+                  color={colors.textTertiary}
+                />
+                <Text
+                  style={[
+                    styles.emailText,
+                    { color: colors.textTertiary, fontSize: fs.sm },
+                  ]}
+                >
+                  {user.email}
+                </Text>
+                {user.emailVerified && (
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={14}
+                    color={colors.success || "#22c55e"}
+                  />
+                )}
+              </View>
+            ) : (
+              <View style={styles.emailRow}>
+                <Ionicons name="mail-outline" size={13} color={colors.danger} />
+                <Text style={[{ color: colors.danger, fontSize: fs.sm }]}>
+                  Email not added
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -292,23 +415,113 @@ const AccountScreen = ({ navigation }: any) => {
           Finzz v1.0.0
         </Text>
       </ScrollView>
+
+      {/* Change Password Modal */}
+      <Modal
+        visible={showChangePwd}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowChangePwd(false)}
+      >
+        <View
+          style={[
+            styles.modalContainer,
+            { backgroundColor: colors.background },
+          ]}
+        >
+          <View
+            style={[
+              styles.modalHeader,
+              { borderBottomColor: colors.separator },
+            ]}
+          >
+            <TouchableOpacity onPress={() => setShowChangePwd(false)}>
+              <Text style={[{ color: colors.textTertiary, fontSize: fs.md }]}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>
+              Change Password
+            </Text>
+            <TouchableOpacity
+              onPress={handleChangePassword}
+              disabled={changingPwd}
+            >
+              <Text
+                style={[
+                  { color: colors.primary, fontSize: fs.md, fontWeight: "700" },
+                ]}
+              >
+                {changingPwd ? "..." : "Save"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalBody}>
+            <Ionicons
+              name="key-outline"
+              size={40}
+              color={colors.primary}
+              style={{ alignSelf: "center", marginBottom: 16 }}
+            />
+            <Text
+              style={[styles.modalSubtitle, { color: colors.textTertiary }]}
+            >
+              Enter your current password and choose a new one.
+            </Text>
+
+            <Text style={[styles.pwdLabel, { color: colors.textSecondary }]}>
+              Current Password
+            </Text>
+            {pwdInput(
+              oldPassword,
+              setOldPassword,
+              "Enter current password",
+              showOld,
+              setShowOld,
+            )}
+
+            <Text style={[styles.pwdLabel, { color: colors.textSecondary }]}>
+              New Password
+            </Text>
+            {pwdInput(
+              newPassword,
+              setNewPassword,
+              "Min 6 characters",
+              showNew,
+              setShowNew,
+            )}
+
+            <Text style={[styles.pwdLabel, { color: colors.textSecondary }]}>
+              Confirm New Password
+            </Text>
+            {pwdInput(
+              confirmPassword,
+              setConfirmPassword,
+              "Confirm new password",
+              false,
+              () => {},
+            )}
+
+            <Button
+              title="Change Password"
+              onPress={handleChangePassword}
+              loading={changingPwd}
+              fullWidth
+              size="lg"
+              style={{ marginTop: 24 }}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaWrapper>
   );
 };
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingBottom: 40,
-  },
-  header: {
-    paddingHorizontal: 24,
-    paddingVertical: 16,
-    // borderBottomWidth: StyleSheet.hairlineWidth, // Clean header
-  },
-  headerTitle: {
-    fontWeight: "800",
-    letterSpacing: -0.5,
-  },
+  scrollContent: { paddingBottom: 40 },
+  header: { paddingHorizontal: 24, paddingVertical: 16 },
+  headerTitle: { fontWeight: "800", letterSpacing: -0.5 },
   profileCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -317,13 +530,12 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     padding: 24,
     borderRadius: 24,
-    // Shadow for profile card
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 2,
-    borderWidth: 0, // Remove border if using shadow
+    borderWidth: 0,
   },
   avatarWrapper: {
     position: "relative",
@@ -351,23 +563,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  uploadText: {
-    color: "#FFF",
-    fontWeight: "700",
-    fontSize: 18,
+  uploadText: { color: "#FFF", fontWeight: "700", fontSize: 18 },
+  profileInfo: { flex: 1, marginLeft: 20 },
+  profileName: { fontWeight: "700", marginBottom: 4, letterSpacing: -0.5 },
+  profilePhone: { opacity: 0.7, marginBottom: 4 },
+  emailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 2,
   },
-  profileInfo: {
-    flex: 1,
-    marginLeft: 20,
-  },
-  profileName: {
-    fontWeight: "700",
-    marginBottom: 4,
-    letterSpacing: -0.5,
-  },
-  profilePhone: {
-    opacity: 0.7,
-  },
+  emailText: { flex: 1 },
   themeCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -383,11 +589,7 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 1,
   },
-  themeLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 16,
-  },
+  themeLeft: { flexDirection: "row", alignItems: "center", gap: 16 },
   themeIcon: {
     width: 40,
     height: 40,
@@ -395,12 +597,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  themeLabel: {
-    fontWeight: "600",
-  },
-  themeSubtext: {
-    marginTop: 2,
-  },
+  themeLabel: { fontWeight: "600" },
+  themeSubtext: { marginTop: 2 },
   menuSection: {
     marginHorizontal: 20,
     borderRadius: 24,
@@ -426,10 +624,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  menuLabel: {
-    flex: 1,
-    fontWeight: "600",
-  },
+  menuLabel: { flex: 1, fontWeight: "600" },
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -440,14 +635,41 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     gap: 10,
   },
-  logoutText: {
-    fontWeight: "700",
+  logoutText: { fontWeight: "700" },
+  version: { textAlign: "center", marginTop: 24, opacity: 0.5 },
+  // Modal styles
+  modalContainer: { flex: 1 },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  version: {
+  modalTitle: { fontSize: 17, fontWeight: "700" },
+  modalBody: { paddingHorizontal: 28, paddingTop: 28 },
+  modalSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
     textAlign: "center",
-    marginTop: 24,
-    opacity: 0.5,
+    marginBottom: 28,
   },
+  pwdLabel: {
+    marginBottom: 6,
+    fontWeight: "500",
+    marginLeft: 4,
+    marginTop: 12,
+  },
+  pwdInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    minHeight: 50,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+  },
+  pwdTextInput: { flex: 1, fontSize: 15 },
 });
 
 export default AccountScreen;

@@ -29,6 +29,7 @@ const LoginScreen = ({ navigation }: any) => {
     {},
   );
   const [loading, setLoadingState] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const validate = (): boolean => {
     const newErrors: typeof errors = {};
@@ -177,9 +178,19 @@ const LoginScreen = ({ navigation }: any) => {
                     }}
                     placeholder="Enter your password"
                     placeholderTextColor={colors.textTertiary}
-                    secureTextEntry
+                    secureTextEntry={!showPassword}
                     style={[styles.textInput, { color: colors.text }]}
                   />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons
+                      name={showPassword ? "eye-off-outline" : "eye-outline"}
+                      size={20}
+                      color={colors.textTertiary}
+                    />
+                  </TouchableOpacity>
                 </View>
                 {errors.password && (
                   <Text style={[styles.errorText, { color: colors.danger }]}>
@@ -196,6 +207,21 @@ const LoginScreen = ({ navigation }: any) => {
                 size="lg"
                 style={{ marginTop: 8 }}
               />
+
+              <TouchableOpacity
+                onPress={() => navigation.navigate("ForgotPassword")}
+                style={{ alignItems: "center", marginTop: 16 }}
+              >
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontSize: fs.sm,
+                    fontWeight: "600",
+                  }}
+                >
+                  Forgot Password?
+                </Text>
+              </TouchableOpacity>
             </View>
 
             <TouchableOpacity

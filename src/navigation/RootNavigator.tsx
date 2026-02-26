@@ -16,14 +16,16 @@ import { useNotifications } from "../hooks/useNotifications";
 import { useAppUpdates } from "../hooks/useAppUpdates";
 import AuthStack from "./AuthStack";
 import MainTabs from "./MainTabs";
+import EmailVerifyModal from "../components/EmailVerifyModal";
 
 const RootNavigator = () => {
   const { theme, isDark } = useTheme();
   const { colors } = theme;
   const dispatch = useAppDispatch();
-  const { isAuthenticated, initializing } = useAppSelector(
+  const { isAuthenticated, initializing, user } = useAppSelector(
     (state) => state.auth,
   );
+  const [showEmailModal, setShowEmailModal] = useState(false);
 
   // Check for OTA updates on app launch
   useAppUpdates();
@@ -70,6 +72,15 @@ const RootNavigator = () => {
     checkAuth();
   }, [dispatch]);
 
+  // Show email verification modal when user is authenticated but has no verified email
+  useEffect(() => {
+    if (isAuthenticated && user && !user.emailVerified) {
+      // Small delay so the main screen renders first
+      const timer = setTimeout(() => setShowEmailModal(true), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isAuthenticated, user?.emailVerified]);
+
   // Custom navigation theme
   const navTheme = React.useMemo(() => {
     return isDark
@@ -108,6 +119,10 @@ const RootNavigator = () => {
   return (
     <NavigationContainer theme={navTheme}>
       {isAuthenticated ? <MainTabs /> : <AuthStack />}
+      <EmailVerifyModal
+        visible={showEmailModal && isAuthenticated}
+        onDismiss={() => setShowEmailModal(false)}
+      />
     </NavigationContainer>
   );
 };
