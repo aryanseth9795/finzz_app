@@ -63,7 +63,7 @@ const ExpenseScreen = ({ navigation }: any) => {
     return unsubscribe;
   }, [navigation]);
 
-  const loadLedgers = async () => {
+  const loadLedgers = async (isManualRefresh = false) => {
     try {
       const cached = await cacheManager.get<IExpenseLedger[]>(
         CACHE_KEYS.EXPENSE_LEDGERS,
@@ -71,15 +71,33 @@ const ExpenseScreen = ({ navigation }: any) => {
       );
       if (cached) dispatch(setLedgers(cached));
 
-      const response = await getExpenseLedgersApi();
-      const ledgerList: IExpenseLedger[] = response.data.ledgers;
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
 
+      const response = await getExpenseLedgersApi(currentYear, currentMonth);
+      const ledgerList: IExpenseLedger[] = response.data.ledgers;
+      console.log(ledgerList);
       dispatch(setLedgers(ledgerList));
       await cacheManager.set(CACHE_KEYS.EXPENSE_LEDGERS, ledgerList);
 
       const currentActiveLedger = store.getState().expense.activeLedger;
 
-      if (currentActiveLedger && ledgerList.length > 0) {
+      const currentRealWorldLedger = ledgerList.find(
+        (l) => l.year === currentYear && l.month === currentMonth,
+      );
+
+      if (
+        !isManualRefresh &&
+        currentActiveLedger &&
+        (currentActiveLedger.year < currentYear ||
+          (currentActiveLedger.year === currentYear &&
+            currentActiveLedger.month < currentMonth)) &&
+        currentRealWorldLedger
+      ) {
+        // Active ledger is from a past month and we are booting/focusing. Auto-navigate to the new current month ledger.
+        dispatch(setActiveLedger(currentRealWorldLedger));
+      } else if (currentActiveLedger && ledgerList.length > 0) {
         // Preserve current selection: find the updated version of the active ledger
         const updatedActive = ledgerList.find(
           (l) => l._id === currentActiveLedger._id,
@@ -89,13 +107,7 @@ const ExpenseScreen = ({ navigation }: any) => {
         }
       } else if (!currentActiveLedger && ledgerList.length > 0) {
         // First load: default to current month
-        const now = new Date();
-        const currentYear = now.getFullYear();
-        const currentMonth = now.getMonth() + 1;
-        const current = ledgerList.find(
-          (l) => l.year === currentYear && l.month === currentMonth,
-        );
-        dispatch(setActiveLedger(current || ledgerList[0]));
+        dispatch(setActiveLedger(currentRealWorldLedger || ledgerList[0]));
       }
     } catch (error) {
       console.error("Failed to load ledgers:", error);
@@ -169,7 +181,7 @@ const ExpenseScreen = ({ navigation }: any) => {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([loadLedgers(), loadExpenses(true)]);
+    await Promise.all([loadLedgers(true), loadExpenses(true)]);
     setRefreshing(false);
   };
 

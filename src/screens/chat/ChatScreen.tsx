@@ -65,13 +65,21 @@ const ChatScreen = ({ route, navigation }: any) => {
             txns: ITx[];
             nextCursor: string | null;
             hasMore: boolean;
-          }>(CACHE_KEYS.TRANSACTIONS(chatId), CACHE_DURATION.TRANSACTIONS);
+          }>(
+            CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
+            CACHE_DURATION.TRANSACTIONS,
+          );
           if (cached) {
             dispatch(setTransactions(cached));
           }
         }
 
-        const response = await getTxnsApi(chatId);
+        const response = await getTxnsApi(
+          chatId,
+          undefined,
+          selectedYear,
+          selectedMonth,
+        );
         const data = response.data;
         dispatch(
           setTransactions({
@@ -80,18 +88,21 @@ const ChatScreen = ({ route, navigation }: any) => {
             hasMore: data.hasMore ?? false,
           }),
         );
-        await cacheManager.set(CACHE_KEYS.TRANSACTIONS(chatId), {
-          txns: data.txns || data,
-          nextCursor: data.nextCursor || null,
-          hasMore: data.hasMore ?? false,
-        });
+        await cacheManager.set(
+          CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
+          {
+            txns: data.txns || data,
+            nextCursor: data.nextCursor || null,
+            hasMore: data.hasMore ?? false,
+          },
+        );
       } catch (error) {
         console.error("Failed to fetch transactions:", error);
       } finally {
         dispatch(setTxLoading(false));
       }
     },
-    [chatId, dispatch],
+    [chatId, dispatch, selectedYear, selectedMonth],
   );
 
   const fetchStats = useCallback(async () => {
@@ -177,7 +188,9 @@ const ChatScreen = ({ route, navigation }: any) => {
     try {
       const response = await verifyTxApi(txnId);
       dispatch(updateTx(response.data.txn || response.data));
-      await cacheManager.remove(CACHE_KEYS.TRANSACTIONS(chatId));
+      await cacheManager.remove(
+        CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
+      );
     } catch (error: any) {
       Alert.alert(
         "Error",
@@ -199,7 +212,9 @@ const ChatScreen = ({ route, navigation }: any) => {
             try {
               await deleteTxApi(txnId);
               dispatch(removeTx(txnId));
-              await cacheManager.remove(CACHE_KEYS.TRANSACTIONS(chatId));
+              await cacheManager.remove(
+                CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
+              );
             } catch (error: any) {
               Alert.alert(
                 "Error",
@@ -500,13 +515,21 @@ const ChatScreen = ({ route, navigation }: any) => {
               })
             : null
         }
-        style={[styles.tableRow, { borderBottomColor: colors.separatorLight }]}
+        style={[
+          styles.tableRow,
+          { borderBottomColor: colors.separatorLight },
+          tx._id === "carry-forward" && {
+            backgroundColor: colors.surfaceSecondary + "40",
+          },
+        ]}
       >
         {/* Main Row: Date | Gave | Received | Status */}
         <View style={styles.rowMain}>
           <View style={styles.colDate}>
             <Text style={[styles.rowText, { color: colors.text }]}>
-              {dayjs(tx.date).format("DD/MM/YY")}
+              {tx._id === "carry-forward"
+                ? "Past"
+                : dayjs(tx.date).format("DD/MM/YY")}
             </Text>
           </View>
 
@@ -533,7 +556,13 @@ const ChatScreen = ({ route, navigation }: any) => {
           </View>
 
           <View style={[styles.colStatus, { alignItems: "center" }]}>
-            {tx.verified ? (
+            {tx._id === "carry-forward" ? (
+              <Ionicons
+                name="information-circle-outline"
+                size={18}
+                color={colors.textTertiary}
+              />
+            ) : tx.verified ? (
               <Ionicons
                 name="checkmark-circle"
                 size={18}
@@ -575,6 +604,36 @@ const ChatScreen = ({ route, navigation }: any) => {
       </TouchableOpacity>
     );
   };
+
+  // Create a display list that includes the carry forward entry at the end if needed
+  const displayTransactions = [...transactions];
+
+  if (!hasMore && !txLoading && stats?.carryForward && user?._id) {
+    const carryForward = stats.carryForward[user._id] || 0;
+    if (carryForward !== 0) {
+      // Create a mock transaction for the carry forward
+      const isCredit = carryForward > 0; // Positive carry forward means we are owed (credit)
+      const carryDate =
+        transactions.length > 0
+          ? transactions[transactions.length - 1].date
+          : new Date(selectedYear, selectedMonth - 1, 1).toISOString();
+
+      const carryForwardTx: ITx = {
+        _id: "carry-forward",
+        chatId: chatId,
+        amount: Math.abs(carryForward),
+        date: carryDate as any,
+        to: isCredit ? (user._id as any) : friend?._id || ("" as any),
+        from: isCredit ? friend?._id || ("" as any) : (user._id as any),
+        remarks: "last month Accounts",
+        addedBy: "system" as any,
+        verified: true,
+        createdAt: new Date().toISOString() as any,
+        updatedAt: new Date().toISOString() as any,
+      };
+      displayTransactions.push(carryForwardTx);
+    }
+  }
 
   return (
     <SafeAreaWrapper edges={["top"]}>
@@ -622,7 +681,7 @@ const ChatScreen = ({ route, navigation }: any) => {
         <View style={styles.tableContainer}>
           {renderTableHeader()}
           <FlatList
-            data={transactions}
+            data={displayTransactions}
             keyExtractor={(item) => item._id}
             renderItem={renderTxRow}
             ListEmptyComponent={

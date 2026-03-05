@@ -78,7 +78,8 @@ export const cacheManager = {
 // Cache key helpers
 export const CACHE_KEYS = {
   CHATS: "chats",
-  TRANSACTIONS: (chatId: string) => `txns_${chatId}`,
+  TRANSACTIONS: (chatId: string, year?: number, month?: number) =>
+    `txns_${chatId}${year ? `_${year}` : ""}${month ? `_${month}` : ""}`,
   FRIENDS: "friends",
   PROFILE: "profile",
   CHAT_STATS: (chatId: string) => `stats_${chatId}`,

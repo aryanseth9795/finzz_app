@@ -27,7 +27,8 @@ export const getExpenseStatsApi = (period?: string) =>
 export const getAdvancedStatsApi = (year?: number, month?: number) =>
   api.get("/expenses/advanced-stats", { params: { year, month } });
 
-export const getExpenseLedgersApi = () => api.get("/expenses/ledgers");
+export const getExpenseLedgersApi = (year?: number, month?: number) =>
+  api.get("/expenses/ledgers", { params: { year, month } });
 
 export const closeLedgerApi = (year: number, month: number) =>
   api.post("/expenses/ledgers/close", { year, month });
