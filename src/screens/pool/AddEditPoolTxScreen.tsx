@@ -37,6 +37,11 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
       return;
     }
 
+    if (parseFloat(amount) >= 10000000) {
+      Alert.alert("Amount Too Large", "Amount must be less than ₹1 Crore");
+      return;
+    }
+
     try {
       setLoading(true);
       await addPoolTxApi({

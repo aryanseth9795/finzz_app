@@ -188,6 +188,7 @@ export interface IExpense {
   userId: string;
   ledgerId: string;
   amount: number;
+  type: "debit" | "credit";
   date: string;
   remarks?: string;
   category?: string;
@@ -203,6 +204,7 @@ export interface IExpenseLedger {
   status: "open" | "closed";
   closedAt?: string;
   totalExpenses: number;
+  totalCredits: number;
 }
 
 export interface IExpenseStats {

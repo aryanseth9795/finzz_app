@@ -5,6 +5,7 @@ export const addExpenseApi = (data: {
   date: string;
   remarks?: string;
   category?: string;
+  type?: "debit" | "credit";
 }) => api.post("/expenses", data);
 
 export const getExpensesApi = (

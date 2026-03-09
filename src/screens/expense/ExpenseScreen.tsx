@@ -466,21 +466,59 @@ const ExpenseScreen = ({ navigation }: any) => {
   const renderStatsBar = () => {
     if (!activeLedger) return null;
 
+    const totalDebited = activeLedger.totalExpenses || 0;
+    const totalCredited = activeLedger.totalCredits || 0;
+    const net = totalCredited - totalDebited;
+    const isSurplus = net >= 0;
+
     return (
-      <View style={[styles.statsBar, { backgroundColor: colors.surface }]}>
-        <View
-          style={[
-            styles.statCard,
-            { backgroundColor: colors.surfaceSecondary },
-          ]}
-        >
-          <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-            Total Spent
-          </Text>
-          <Text style={[styles.statValue, { color: colors.danger }]}>
-            ₹{activeLedger.totalExpenses.toFixed(2)}
-          </Text>
+      <View
+        style={{
+          backgroundColor: colors.surface,
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+        }}
+      >
+        <View style={{ flexDirection: "row", gap: 12 }}>
+          <View
+            style={[
+              styles.statCard,
+              { backgroundColor: colors.surfaceSecondary, flex: 1 },
+            ]}
+          >
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
+              Total Debited
+            </Text>
+            <Text style={[styles.statValue, { color: colors.danger }]}>
+              ₹{totalDebited.toFixed(2)}
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.statCard,
+              { backgroundColor: colors.surfaceSecondary, flex: 1 },
+            ]}
+          >
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
+              Total Credited
+            </Text>
+            <Text style={[styles.statValue, { color: "#22C55E" }]}>
+              ₹{totalCredited.toFixed(2)}
+            </Text>
+          </View>
         </View>
+        <Text
+          style={{
+            textAlign: "center",
+            fontSize: 12,
+            color: isSurplus ? "#22C55E" : colors.danger,
+            opacity: 0.7,
+            marginTop: 6,
+          }}
+        >
+          Net: {isSurplus ? "+" : ""}₹{Math.abs(net).toFixed(2)}{" "}
+          {isSurplus ? "(Surplus)" : "(Deficit)"}
+        </Text>
       </View>
     );
   };
@@ -530,9 +568,19 @@ const ExpenseScreen = ({ navigation }: any) => {
           {new Date(expense.date).toLocaleDateString()}
         </Text>
         <Text
-          style={[styles.cell, styles.amountCell, { color: colors.danger }]}
+          style={[
+            styles.cell,
+            styles.amountCell,
+            {
+              color:
+                (expense.type || "debit") === "credit"
+                  ? "#22C55E"
+                  : colors.danger,
+            },
+          ]}
         >
-          ₹{expense.amount.toFixed(2)}
+          {(expense.type || "debit") === "credit" ? "+" : "-"}₹
+          {expense.amount.toFixed(2)}
         </Text>
         <View style={styles.actionsCell}>
           {activeLedger?.status === "open" && (
@@ -736,8 +784,10 @@ const styles = StyleSheet.create({
   },
   ledgerButtonText: { fontSize: 14, fontWeight: "600" },
   statsBar: {
+    flexDirection: "row",
     paddingHorizontal: 16,
     paddingVertical: 12,
+    gap: 12,
   },
   statCard: {
     padding: 4,

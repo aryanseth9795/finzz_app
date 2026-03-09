@@ -52,6 +52,11 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
       return;
     }
 
+    if (numAmount >= 10000000) {
+      Alert.alert("Amount Too Large", "Amount must be less than ₹1 Crore");
+      return;
+    }
+
     if (isEditing && tx.verified) {
       Alert.alert("Cannot Edit", "Verified transactions cannot be edited");
       return;

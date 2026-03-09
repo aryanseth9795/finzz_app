@@ -32,6 +32,9 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
   const dispatch = useAppDispatch();
 
   const [amount, setAmount] = useState(expense?.amount?.toString() || "");
+  const [txnType, setTxnType] = useState<"debit" | "credit">(
+    expense?.type || "debit",
+  );
   const [date, setDate] = useState(
     expense ? new Date(expense.date) : new Date(),
   );
@@ -46,11 +49,17 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
       return;
     }
 
+    if (parseFloat(amount) >= 10000000) {
+      Alert.alert("Amount Too Large", "Amount must be less than ₹1 Crore");
+      return;
+    }
+
     const expenseData = {
       amount: parseFloat(amount),
       date: date.toISOString(),
       remarks: remarks.trim() || undefined,
       category: category.trim() || undefined,
+      type: txnType,
     };
 
     const proceedWithAdd = async () => {
@@ -62,6 +71,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
           userId: "",
           ledgerId: ledgerId || "",
           ...expenseData,
+          type: txnType,
           date: date.toISOString(),
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -71,7 +81,10 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         dispatch(addExpense(tempExpense));
 
         // Navigate back immediately
-        showSuccessToast("Expense added!", parseFloat(amount));
+        showSuccessToast(
+          txnType === "credit" ? "Credit added!" : "Expense added!",
+          parseFloat(amount),
+        );
         navigation.goBack();
 
         // Call server in background
@@ -178,7 +191,13 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.text }]}>
-          {isEditing ? "Edit Expense" : "Add Expense"}
+          {isEditing
+            ? txnType === "credit"
+              ? "Edit Credit"
+              : "Edit Expense"
+            : txnType === "credit"
+              ? "Add Credit"
+              : "Add Expense"}
         </Text>
         <View style={{ width: 24 }} />
       </View>
@@ -204,6 +223,69 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
             placeholder="0.00"
             placeholderTextColor={colors.inputPlaceholder}
           />
+        </View>
+
+        {/* Type Toggle */}
+        <View style={styles.field}>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>
+            Type
+          </Text>
+          <View
+            style={[styles.typeToggle, { backgroundColor: colors.surface }]}
+          >
+            <TouchableOpacity
+              style={[
+                styles.typeButton,
+                txnType === "debit" && {
+                  backgroundColor: colors.danger || "#EF4444",
+                },
+              ]}
+              onPress={() => setTxnType("debit")}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="arrow-up-circle"
+                size={20}
+                color={txnType === "debit" ? "#fff" : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.typeButtonText,
+                  {
+                    color: txnType === "debit" ? "#fff" : colors.textSecondary,
+                  },
+                ]}
+              >
+                Debit (Money Out)
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.typeButton,
+                txnType === "credit" && {
+                  backgroundColor: "#22C55E",
+                },
+              ]}
+              onPress={() => setTxnType("credit")}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="arrow-down-circle"
+                size={20}
+                color={txnType === "credit" ? "#fff" : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.typeButtonText,
+                  {
+                    color: txnType === "credit" ? "#fff" : colors.textSecondary,
+                  },
+                ]}
+              >
+                Credit (Money In)
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Date */}
@@ -344,6 +426,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   dateText: { fontSize: 16 },
+  typeToggle: {
+    flexDirection: "row",
+    borderRadius: 12,
+    padding: 4,
+    gap: 4,
+  },
+  typeButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    gap: 8,
+  },
+  typeButtonText: {
+    fontWeight: "600",
+    fontSize: 14,
+  },
   saveButton: {
     borderRadius: 8,
     paddingVertical: 14,
