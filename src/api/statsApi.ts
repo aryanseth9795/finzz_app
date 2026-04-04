@@ -19,3 +19,6 @@ export const getMonthlyReportApi = () => api.get("/stats/monthly");
 
 export const getPerFriendReportApi = (friendId: string) =>
   api.get(`/stats/friend/${friendId}`);
+
+export const getChatExportHtmlApi = (chatId: string, year: number, month: number) =>
+  api.get(`/stats/chat/${chatId}/export`, { params: { year, month } });

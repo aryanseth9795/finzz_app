@@ -60,6 +60,23 @@ export const cacheManager = {
   },
 
   /**
+   * Remove all cache entries that start with a specific key prefix
+   */
+  removeByPrefix: async (keyPrefix: string): Promise<void> => {
+    try {
+      const allKeys = await AsyncStorage.getAllKeys();
+      const cacheKeys = allKeys.filter((k) =>
+        k.startsWith(CACHE_PREFIX + keyPrefix),
+      );
+      if (cacheKeys.length > 0) {
+        await AsyncStorage.multiRemove(cacheKeys);
+      }
+    } catch {
+      // Silently fail
+    }
+  },
+
+  /**
    * Clear all app cache
    */
   clearAll: async (): Promise<void> => {
@@ -80,6 +97,7 @@ export const CACHE_KEYS = {
   CHATS: "chats",
   TRANSACTIONS: (chatId: string, year?: number, month?: number) =>
     `txns_${chatId}${year ? `_${year}` : ""}${month ? `_${month}` : ""}`,
+  TRANSACTIONS_PREFIX: (chatId: string) => `txns_${chatId}`,
   FRIENDS: "friends",
   PROFILE: "profile",
   CHAT_STATS: (chatId: string) => `stats_${chatId}`,
@@ -87,4 +105,5 @@ export const CACHE_KEYS = {
   EXPENSES: (ledgerId: string) => `expenses_${ledgerId}`,
   EXPENSE_LEDGERS: "expense_ledgers",
   EXPENSE_STATS: "expense_stats",
+  NOTIFICATIONS: "notifications",
 };

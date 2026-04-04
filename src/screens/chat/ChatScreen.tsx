@@ -10,14 +10,20 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  Modal,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
-import { getTxnsApi, verifyTxApi, deleteTxApi } from "../../api/txApi";
-import { getChatStatsApi, getChatMonthsApi } from "../../api/statsApi";
+import { getTxnsApi, verifyTxApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
+import { getChatStatsApi, getChatMonthsApi, getChatExportHtmlApi } from "../../api/statsApi";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
   setTransactions,
@@ -48,6 +54,12 @@ const ChatScreen = ({ route, navigation }: any) => {
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [availableMonths, setAvailableMonths] = useState<IAvailableMonth[]>([]);
+
+  // Rejection modal state
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectTxnId, setRejectTxnId] = useState<string | null>(null);
+  const [rejectRemark, setRejectRemark] = useState("");
+  const [rejecting, setRejecting] = useState(false);
 
   // Get friend info
   const friend: IUser =
@@ -184,25 +196,71 @@ const ChatScreen = ({ route, navigation }: any) => {
     }
   };
 
+  const invalidateChatCache = async () => {
+    await cacheManager.removeByPrefix(CACHE_KEYS.TRANSACTIONS_PREFIX(chatId));
+    await cacheManager.remove(CACHE_KEYS.CHAT_STATS(chatId));
+    await cacheManager.remove(CACHE_KEYS.CHATS);
+  };
+
   const handleVerify = async (txnId: string) => {
     try {
-      const response = await verifyTxApi(txnId);
-      dispatch(updateTx(response.data.txn || response.data));
-      await cacheManager.remove(
-        CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
-      );
+      const response = await reviewTxApi(txnId, "verify");
+      dispatch(updateTx(response.data.txn));
+      await invalidateChatCache();
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to verify",
+      Alert.alert("Error", error?.response?.data?.message || "Failed to verify");
+    }
+  };
+
+  const handleReject = async (txnId: string) => {
+    // Open the rejection modal instead of rejecting immediately
+    setRejectTxnId(txnId);
+    setRejectRemark("");
+    setRejectModalVisible(true);
+  };
+
+  const confirmReject = async () => {
+    if (!rejectTxnId) return;
+    setRejecting(true);
+    try {
+      const response = await reviewTxApi(
+        rejectTxnId,
+        "reject",
+        rejectRemark.trim() || undefined,
       );
+      dispatch(updateTx(response.data.txn));
+      await invalidateChatCache();
+    } catch (error: any) {
+      Alert.alert("Error", error?.response?.data?.message || "Failed to reject");
+    } finally {
+      setRejecting(false);
+      setRejectModalVisible(false);
+      setRejectTxnId(null);
+      setRejectRemark("");
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    try {
+      const response = await getChatExportHtmlApi(chatId, selectedYear, selectedMonth);
+      const html = response.data?.html;
+      if (!html) throw new Error("No HTML returned from server");
+
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri, {
+        UTI: ".pdf",
+        mimeType: "application/pdf",
+      });
+    } catch (error) {
+      Alert.alert("Error", "Failed to generate PDF report");
+      console.error(error);
     }
   };
 
   const handleDelete = (txnId: string) => {
     Alert.alert(
       "Delete Transaction",
-      "Are you sure you want to delete this transaction?",
+      "Are you sure you want to delete this rejected transaction?",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -212,9 +270,7 @@ const ChatScreen = ({ route, navigation }: any) => {
             try {
               await deleteTxApi(txnId);
               dispatch(removeTx(txnId));
-              await cacheManager.remove(
-                CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
-              );
+              await invalidateChatCache();
             } catch (error: any) {
               Alert.alert(
                 "Error",
@@ -434,6 +490,21 @@ const ChatScreen = ({ route, navigation }: any) => {
             </View>
           </View>
         </View>
+
+        {/* Download Report Button */}
+        <TouchableOpacity
+          onPress={handleDownloadReport}
+          style={[
+            styles.downloadBtn,
+            { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" },
+          ]}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="download-outline" size={16} color={colors.primary} />
+          <Text style={[styles.downloadBtnText, { color: colors.primary }]}>
+            Download Report
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   };
@@ -480,33 +551,45 @@ const ChatScreen = ({ route, navigation }: any) => {
             { color: colors.textSecondary, textAlign: "center" },
           ]}
         >
-          Verified
+          Status
         </Text>
       </View>
     </View>
   );
 
   const renderTxRow = ({ item: tx }: { item: ITx }) => {
-    // Helper to extract user ID from either string or populated object
-    const getUserId = (userId?: string | { _id: string; name: string }) => {
-      if (!userId) return undefined;
-      if (typeof userId === "string") return userId;
-      return userId._id;
+    const getUserId = (u?: string | { _id: string; name: string }) => {
+      if (!u) return undefined;
+      if (typeof u === "string") return u;
+      return u._id;
     };
 
-    const isCredit = tx.to === user?._id; // Money coming to user
+    const txStatus = tx.status || (tx.verified ? "verified" : "pending");
+    const isCarryForward = tx._id === "carry-forward";
+    const isCredit = getUserId(tx.to) === user?._id;
     const addedById = getUserId(tx.addedBy);
-    const canVerify = addedById !== user?._id && !tx.verified;
-    const canEdit = addedById === user?._id && !tx.verified;
+    const isMyTx = addedById === user?._id;
+
+    // Action rules based on status
+    const isReceiverPending = !isMyTx && txStatus === "pending";
+    const isCreatorRejected = isMyTx && txStatus === "rejected";
     const addedByName = getUserName(tx.addedBy);
-    const verifiedByName = tx.verified ? getUserName(tx.verifiedBy) : "-";
+
+    const rowBg =
+      txStatus === "rejected"
+        ? colors.danger + "10"
+        : isCarryForward
+          ? colors.surfaceSecondary + "40"
+          : undefined;
 
     return (
       <TouchableOpacity
         activeOpacity={0.7}
-        onLongPress={() => (canEdit ? handleDelete(tx._id) : null)}
+        onLongPress={() =>
+          isCreatorRejected ? handleDelete(tx._id) : null
+        }
         onPress={() =>
-          canEdit
+          isCreatorRejected
             ? navigation.navigate("AddEditTx", {
                 chatId,
                 tx,
@@ -518,89 +601,98 @@ const ChatScreen = ({ route, navigation }: any) => {
         style={[
           styles.tableRow,
           { borderBottomColor: colors.separatorLight },
-          tx._id === "carry-forward" && {
-            backgroundColor: colors.surfaceSecondary + "40",
-          },
+          rowBg ? { backgroundColor: rowBg } : null,
         ]}
       >
-        {/* Main Row: Date | Gave | Received | Status */}
+        {/* Main Row */}
         <View style={styles.rowMain}>
           <View style={styles.colDate}>
             <Text style={[styles.rowText, { color: colors.text }]}>
-              {tx._id === "carry-forward"
-                ? "Past"
-                : dayjs(tx.date).format("DD/MM/YY")}
+              {isCarryForward ? "Past" : dayjs(tx.date).format("DD/MM/YY")}
             </Text>
           </View>
 
           <View style={styles.colAmount}>
-            <Text
-              style={[
-                styles.rowText,
-                { color: colors.debit, textAlign: "center" },
-              ]}
-            >
+            <Text style={[styles.rowText, { color: colors.debit, textAlign: "center" }]}>
               {!isCredit ? `₹${tx.amount.toLocaleString("en-IN")}` : "-"}
             </Text>
           </View>
 
           <View style={styles.colAmount}>
-            <Text
-              style={[
-                styles.rowText,
-                { color: colors.credit, textAlign: "center" },
-              ]}
-            >
+            <Text style={[styles.rowText, { color: colors.credit, textAlign: "center" }]}>
               {isCredit ? `₹${tx.amount.toLocaleString("en-IN")}` : "-"}
             </Text>
           </View>
 
+          {/* Status column */}
           <View style={[styles.colStatus, { alignItems: "center" }]}>
-            {tx._id === "carry-forward" ? (
-              <Ionicons
-                name="information-circle-outline"
-                size={18}
-                color={colors.textTertiary}
-              />
-            ) : tx.verified ? (
-              <Ionicons
-                name="checkmark-circle"
-                size={18}
-                color={colors.verified}
-              />
-            ) : canVerify ? (
-              <TouchableOpacity
-                onPress={() => handleVerify(tx._id)}
-                style={[
-                  styles.verifyBtn,
-                  { backgroundColor: colors.successLight },
-                ]}
-              >
-                <Text
-                  style={[styles.verifyBtnText, { color: colors.verified }]}
+            {isCarryForward ? (
+              <Ionicons name="information-circle-outline" size={18} color={colors.textTertiary} />
+            ) : txStatus === "verified" ? (
+              <Ionicons name="checkmark-circle" size={18} color={colors.verified} />
+            ) : txStatus === "rejected" ? (
+              <Ionicons name="close-circle" size={16} color={colors.danger} />
+            ) : isReceiverPending ? (
+              <View style={{ flexDirection: "row", gap: 6 }}>
+                <TouchableOpacity
+                  onPress={() => handleVerify(tx._id)}
+                  style={[styles.verifyBtn, { backgroundColor: colors.successLight }]}
                 >
-                  Verify
-                </Text>
-              </TouchableOpacity>
+                  <Text style={[styles.verifyBtnText, { color: colors.verified }]}>✓</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleReject(tx._id)}
+                  style={[styles.verifyBtn, { backgroundColor: colors.danger + "20" }]}
+                >
+                  <Text style={[styles.verifyBtnText, { color: colors.danger }]}>✗</Text>
+                </TouchableOpacity>
+              </View>
             ) : (
-              <Ionicons
-                name="time-outline"
-                size={18}
-                color={colors.textTertiary}
-              />
+              <Ionicons name="time-outline" size={18} color={colors.textTertiary} />
             )}
           </View>
         </View>
 
-        {/* Footer Row: Remarks & Added By */}
+        {/* Footer */}
         <View style={styles.rowFooter}>
-          <Text style={[styles.remarksText, { color: colors.textSecondary }]}>
-            {tx.remarks || "No remarks"}
+          <Text style={[styles.remarksText, { color: colors.textSecondary }]} numberOfLines={2}>
+            {txStatus === "rejected"
+              ? `Rejected${tx.rejectionRemark ? ` — "${tx.rejectionRemark}"` : ""}`
+              : (tx.remarks || "No remarks")}
           </Text>
-          <Text style={[styles.addedByText, { color: colors.textTertiary }]}>
-            Added by {addedByName}
-          </Text>
+          {!isCarryForward && txStatus !== "rejected" && (
+            <Text style={[styles.addedByText, { color: colors.textTertiary }]}>
+              By {addedByName}
+            </Text>
+          )}
         </View>
+
+        {/* Action buttons for creator on rejected txns */}
+        {isCreatorRejected && (
+          <View style={styles.rejectedActions}>
+            <TouchableOpacity
+              style={[styles.rejActBtn, { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" }]}
+              onPress={() =>
+                navigation.navigate("AddEditTx", {
+                  chatId,
+                  tx,
+                  friendName: friend?.name,
+                  friend,
+                })
+              }
+            >
+              <Ionicons name="create-outline" size={14} color={colors.primary} />
+              <Text style={[styles.rejActBtnText, { color: colors.primary }]}>Edit</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.rejActBtn, { backgroundColor: colors.danger + "12", borderColor: colors.danger + "30" }]}
+              onPress={() => handleDelete(tx._id)}
+            >
+              <Ionicons name="trash-outline" size={14} color={colors.danger} />
+              <Text style={[styles.rejActBtnText, { color: colors.danger }]}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
@@ -627,6 +719,7 @@ const ChatScreen = ({ route, navigation }: any) => {
         from: isCredit ? friend?._id || ("" as any) : (user._id as any),
         remarks: "last month Accounts",
         addedBy: "system" as any,
+        status: "verified" as any,
         verified: true,
         createdAt: new Date().toISOString() as any,
         updatedAt: new Date().toISOString() as any,
@@ -729,7 +822,6 @@ const ChatScreen = ({ route, navigation }: any) => {
         </View>
       )}
 
-      {/* FAB to add transaction */}
       <TouchableOpacity
         onPress={() =>
           navigation.navigate("AddEditTx", {
@@ -743,6 +835,86 @@ const ChatScreen = ({ route, navigation }: any) => {
       >
         <Ionicons name="add" size={28} color="#FFFFFF" />
       </TouchableOpacity>
+
+      {/* Rejection Remark Modal */}
+      <Modal
+        visible={rejectModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRejectModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.modalOverlay}
+        >
+          <View style={[styles.modalCard, { backgroundColor: colors.surface }]}>
+            <View style={styles.modalHeader}>
+              <Ionicons name="close-circle-outline" size={24} color={colors.danger} />
+              <Text style={[styles.modalTitle, { color: colors.text }]}>
+                Reject Transaction
+              </Text>
+            </View>
+
+            <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+              Optionally add a reason for rejection
+            </Text>
+
+            <TextInput
+              style={[
+                styles.remarkInput,
+                {
+                  backgroundColor: colors.background,
+                  borderColor: colors.border,
+                  color: colors.text,
+                },
+              ]}
+              placeholder="e.g. Wrong amount, not this month..."
+              placeholderTextColor={colors.textTertiary}
+              value={rejectRemark}
+              onChangeText={setRejectRemark}
+              maxLength={200}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[
+                  styles.modalBtn,
+                  { backgroundColor: colors.background, borderColor: colors.border, borderWidth: 1 },
+                ]}
+                onPress={() => {
+                  setRejectModalVisible(false);
+                  setRejectTxnId(null);
+                  setRejectRemark("");
+                }}
+              >
+                <Text style={[styles.modalBtnText, { color: colors.textSecondary }]}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.modalBtn,
+                  { backgroundColor: colors.danger },
+                ]}
+                onPress={confirmReject}
+                disabled={rejecting}
+              >
+                {rejecting ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Text style={[styles.modalBtnText, { color: "#FFF" }]}>
+                    Reject
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaWrapper>
   );
 };
@@ -850,6 +1022,21 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
+  // Download button in stats bar
+  downloadBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  downloadBtnText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
   // Table Styles
   tableContainer: {
     flex: 1,
@@ -902,8 +1089,28 @@ const styles = StyleSheet.create({
   },
   // Responsive table columns
   colDate: { width: 70, minWidth: 60 },
-  colAmount: { flex: 1, minWidth: 70, paddingRight: 4 },
-  colStatus: { width: 60, minWidth: 50, alignItems: "center" },
+  colAmount: { flex: 1, minWidth: 60, paddingRight: 4 },
+  colStatus: { width: 75, minWidth: 70, alignItems: "center" },
+
+  rejectedActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 6,
+    paddingLeft: 70,
+  },
+  rejActBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  rejActBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
 
   verifyBtn: {
     paddingHorizontal: 8,
@@ -946,6 +1153,62 @@ const styles = StyleSheet.create({
   },
   emptyList: {
     flexGrow: 1,
+  },
+
+  // Rejection modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalCard: {
+    width: "100%",
+    borderRadius: 20,
+    padding: 24,
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  remarkInput: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    fontSize: 14,
+    minHeight: 80,
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
   },
 });
 

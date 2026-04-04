@@ -1,4 +1,5 @@
 export const BASE_URL = "https://finzz-backend.onrender.com/api/v1";
+// export const BASE_URL = "http://192.168.1.12:3000/api/v1";
 export const CACHE_DURATION = {
   CHATS: 2 * 60 * 1000,
   TRANSACTIONS: 1 * 60 * 1000,

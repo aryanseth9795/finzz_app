@@ -9,6 +9,7 @@ import {
   Alert,
   Platform,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -176,7 +177,10 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.background }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: colors.background }]}
+      edges={["top"]}
+    >
       {/* Header */}
       <View
         style={[
@@ -380,7 +384,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
           </Text>
         </TouchableOpacity>
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 };
 

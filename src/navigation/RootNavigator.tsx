@@ -11,6 +11,7 @@ import { setCredentials, setInitializing } from "../store/slices/authSlice";
 import { setLogoutCallback } from "../api/axios";
 import { getProfileApi } from "../api/authApi";
 import { tokenManager } from "../utils/tokenManager";
+import { BASE_URL } from "../constants/api";
 import { logout as logoutAction } from "../store/slices/authSlice";
 import { useNotifications } from "../hooks/useNotifications";
 import { useAppUpdates } from "../hooks/useAppUpdates";
@@ -45,26 +46,65 @@ const RootNavigator = () => {
     const checkAuth = async () => {
       try {
         const accessToken = await tokenManager.getAccessToken();
+        const refreshTokenVal = await tokenManager.getRefreshToken();
         const userDataStr = await tokenManager.getUserData();
 
-        if (accessToken && userDataStr) {
-          const userData = JSON.parse(userDataStr);
-          dispatch(setCredentials(userData));
-
-          // Background refresh of profile
-          getProfileApi()
-            .then(async (res) => {
-              if (res.data.success && res.data.user) {
-                dispatch(setCredentials(res.data.user)); // Update Redux
-                await tokenManager.setUserData(JSON.stringify(res.data.user)); // Update Cache
-              }
-            })
-            .catch((err) => {
-              console.log("Background profile fetch failed", err);
-            });
-        } else {
+        // No tokens at all — not logged in
+        if (!accessToken && !refreshTokenVal) {
           dispatch(setInitializing(false));
+          return;
         }
+
+        // Show cached user immediately if available
+        if (userDataStr) {
+          try {
+            const userData = JSON.parse(userDataStr);
+            dispatch(setCredentials(userData));
+          } catch {
+            // corrupt cache — ignore
+          }
+        }
+
+        // If we have an access token, try fetching profile.
+        // If it's expired, the axios interceptor will auto-refresh.
+        // If no access token but we have a refresh token, manually refresh first.
+        if (!accessToken && refreshTokenVal) {
+          try {
+            const { default: axios } = await import("axios");
+            const response = await axios.post(
+              `${BASE_URL}/users/refresh`,
+              {},
+              {
+                headers: { Authorization: `Bearer ${refreshTokenVal}` },
+                timeout: 15000,
+              },
+            );
+            const { access_token, refresh_token } = response.data;
+            await tokenManager.setAccessToken(access_token);
+            await tokenManager.setRefreshToken(refresh_token);
+          } catch {
+            // Refresh failed — force logout
+            await tokenManager.clearAll();
+            dispatch(setInitializing(false));
+            return;
+          }
+        }
+
+        // Now fetch fresh profile (interceptor handles 401 if needed)
+        getProfileApi()
+          .then(async (res) => {
+            if (res.data.success && res.data.user) {
+              dispatch(setCredentials(res.data.user));
+              await tokenManager.setUserData(JSON.stringify(res.data.user));
+            }
+          })
+          .catch(async () => {
+            // If profile fetch fails even after refresh, logout
+            const stillHasToken = await tokenManager.getAccessToken();
+            if (!stillHasToken) {
+              dispatch(logoutAction());
+            }
+          });
       } catch {
         dispatch(setInitializing(false));
       }

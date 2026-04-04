@@ -23,6 +23,7 @@ import { addTx, updateTx } from "../../store/slices/chatSlice";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { ITx } from "../../types";
 
+
 const AddEditTxScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs, borderRadius: br } = theme;
@@ -57,8 +58,16 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
       return;
     }
 
-    if (isEditing && tx.verified) {
+    if (isEditing && tx.status === "verified") {
       Alert.alert("Cannot Edit", "Verified transactions cannot be edited");
+      return;
+    }
+
+    if (isEditing && tx.status !== "rejected") {
+      Alert.alert(
+        "Cannot Edit",
+        "You can only edit a transaction that has been rejected by the other person.",
+      );
       return;
     }
 
@@ -83,7 +92,8 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
         const response = await addTxApi(payload);
         dispatch(addTx(response.data.txn || response.data));
       }
-      await cacheManager.remove(CACHE_KEYS.TRANSACTIONS(chatId));
+      // Invalidate all cached txns for this chat across all months
+      await cacheManager.removeByPrefix(CACHE_KEYS.TRANSACTIONS_PREFIX(chatId));
       await cacheManager.remove(CACHE_KEYS.CHATS);
       showSuccessToast(
         isEditing ? "Transaction updated!" : "Transaction added!",
@@ -124,10 +134,25 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
                 { color: colors.text, fontSize: fs.lg },
               ]}
             >
-              {isEditing ? "Edit Transaction" : "New Transaction"}
+              {isEditing ? "Resubmit Transaction" : "New Transaction"}
             </Text>
             <View style={{ width: 24 }} />
           </View>
+
+          {/* Resubmit banner (edit mode only) */}
+          {isEditing && (
+            <View
+              style={[
+                styles.resubmitBanner,
+                { backgroundColor: colors.primary + "15", borderColor: colors.primary + "40" },
+              ]}
+            >
+              <Ionicons name="refresh-circle-outline" size={18} color={colors.primary} />
+              <Text style={[styles.resubmitText, { color: colors.primary }]}>
+                Saving will resubmit this transaction for review
+              </Text>
+            </View>
+          )}
 
           <View style={styles.form}>
             {/* Amount */}
@@ -473,6 +498,23 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "#ccc",
+  },
+  resubmitBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  resubmitText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
   },
 });
 

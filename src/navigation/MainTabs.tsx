@@ -15,6 +15,10 @@ import PoolSettingsScreen from "../screens/pool/PoolSettingsScreen";
 import PoolStatsScreen from "../screens/pool/PoolStatsScreen";
 import EditPoolScreen from "../screens/pool/EditPoolScreen";
 import AccountScreen from "../screens/account/AccountScreen";
+import NotificationsScreen from "../screens/account/NotificationsScreen";
+import PrivacyScreen from "../screens/account/PrivacyScreen";
+import HelpSupportScreen from "../screens/account/HelpSupportScreen";
+import AboutFinzzScreen from "../screens/account/AboutFinzzScreen";
 import ReportScreen from "../screens/reports/ReportScreen";
 // Expense screens
 import ExpenseScreen from "../screens/expense/ExpenseScreen";
@@ -84,6 +88,16 @@ const ExpenseStackNavigator = () => {
       />
       <ExpenseStack.Screen name="ExpenseStats" component={ExpenseStatsScreen} />
       <ExpenseStack.Screen name="AccountHome" component={AccountScreen} />
+      <ExpenseStack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+      />
+      <ExpenseStack.Screen name="Privacy" component={PrivacyScreen} />
+      <ExpenseStack.Screen
+        name="HelpSupport"
+        component={HelpSupportScreen}
+      />
+      <ExpenseStack.Screen name="AboutFinzz" component={AboutFinzzScreen} />
     </ExpenseStack.Navigator>
   );
 };

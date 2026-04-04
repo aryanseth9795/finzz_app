@@ -26,6 +26,9 @@ export const getTxnsApi = (
 export const verifyTxApi = (txnId: string) =>
   api.post("/txns/verifytx", { txnId });
 
+export const reviewTxApi = (txnId: string, action: "verify" | "reject", remark?: string) =>
+  api.post("/txns/reviewtx", { txnId, action, ...(remark ? { remark } : {}) });
+
 export const editTxApi = (txnId: string, data: object) =>
   api.put(`/txns/edittx/${txnId}`, data);
 

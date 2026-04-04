@@ -9,10 +9,11 @@ import {
   ActivityIndicator,
   RefreshControl,
   TextInput,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
-import { SafeAreaWrapper, Avatar, Input, Button } from "../../components/ui";
+import { SafeAreaWrapper, Avatar, Button } from "../../components/ui";
 import {
   searchByPhoneApi,
   sendFriendRequestApi,
@@ -432,7 +433,7 @@ const styles = StyleSheet.create({
   },
   searchRow: {
     flexDirection: "row",
-    alignItems: "flex-end", // Align input and button
+    alignItems: "center",
     gap: 12,
   },
   searchInput: {
@@ -576,8 +577,11 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    height: "100%",
+    height: 22,
     fontSize: 16,
+    paddingVertical: 0,
+    textAlignVertical: "center",
+    ...(Platform.OS === "android" ? { includeFontPadding: false } : null),
   },
 });
 

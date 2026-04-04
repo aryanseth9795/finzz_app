@@ -26,6 +26,7 @@ export interface ILastTransaction {
   remark?: string;
   to: string;
   from: string;
+  status?: "pending" | "verified" | "rejected";
 }
 
 export interface IChat {
@@ -49,9 +50,13 @@ export interface ITx {
   to: string;
   from: string;
   addedBy: string | { _id: string; name: string }; // Can be ID or populated object
+  status?: "pending" | "verified" | "rejected";
   verified: boolean;
   verifiedBy?: string | { _id: string; name: string }; // Can be ID or populated object
   verifiedAt?: string;
+  rejectedBy?: string | { _id: string; name: string };
+  rejectedAt?: string;
+  rejectionRemark?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -122,8 +127,21 @@ export interface IMonthlyBreakdown {
 // ========================
 export interface INotification {
   _id: string;
-  type: "friend_request" | "friend_accepted" | "txn_added" | "txn_verified";
+  type:
+    | "friend_request"
+    | "friend_accepted"
+    | "txn_added"
+    | "txn_verified"
+    | "txn_rejected"
+    | "txn_reworked"
+    | "txn_deleted"
+    | "pool_tx_added"
+    | "pool_tx_verified"
+    | "pool_member_added"
+    | "pool_member_removed";
   sender: IUser;
+  title?: string;
+  body?: string;
   data?: Record<string, unknown>;
   read: boolean;
   createdAt: string;
@@ -208,31 +226,72 @@ export interface IExpenseLedger {
 }
 
 export interface IExpenseStats {
-  daily?: Array<{ date: string; total: number; count: number }>;
-  monthly?: Array<{ month: string; total: number; count: number }>;
-  yearly?: Array<{ year: number; total: number; count: number }>;
-  grandTotal: number;
+  daily?: Array<{
+    date: string;
+    debitTotal: number;
+    creditTotal: number;
+    debitCount: number;
+    creditCount: number;
+    net: number;
+  }>;
+  monthly?: Array<{
+    month: string;
+    debitTotal: number;
+    creditTotal: number;
+    debitCount: number;
+    creditCount: number;
+    net: number;
+  }>;
+  yearly?: Array<{
+    year: number;
+    debitTotal: number;
+    creditTotal: number;
+    debitCount: number;
+    creditCount: number;
+    net: number;
+  }>;
+  grandTotals: {
+    debits: number;
+    credits: number;
+    net: number;
+  };
 }
 
 export interface IAdvancedExpenseStats {
+  selectedLedger?: {
+    _id: string;
+    year: number;
+    month: number;
+    status: "open" | "closed";
+  } | null;
   selectedMonth: { year: number; month: number };
   summary: {
-    total: number;
-    count: number;
-    avgDailySpend: number;
+    totalDebits: number;
+    totalCredits: number;
+    net: number;
+    debitCount: number;
+    creditCount: number;
+    avgDailyDebit: number;
+    avgDailyCredit: number;
     activeDays: number;
   };
   monthlyTrend: Array<{
     month: string;
     year: number;
     monthNum: number;
-    total: number;
-    count: number;
+    debitTotal: number;
+    creditTotal: number;
+    debitCount: number;
+    creditCount: number;
+    net: number;
   }>;
   dailyBreakdown: Array<{
     date: string;
-    total: number;
-    count: number;
+    debitTotal: number;
+    creditTotal: number;
+    debitCount: number;
+    creditCount: number;
+    net: number;
   }>;
   categoryBreakdown: Array<{
     name: string;

@@ -7,17 +7,16 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Dimensions,
-  Platform,
   Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LineChart, BarChart, PieChart } from "react-native-chart-kit";
 import * as Print from "expo-print";
-import * as Sharing from "expo-sharing"; // Use expo-sharing for PDF
+import * as Sharing from "expo-sharing";
 
 import { useTheme } from "../../contexts/ThemeContext";
-import { getAdvancedStatsApi } from "../../api/expenseApi";
+import { getAdvancedStatsApi, getExpenseExportHtmlApi } from "../../api/expenseApi";
 import { IAdvancedExpenseStats } from "../../types";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
@@ -26,18 +25,15 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
   const { theme, isDark } = useTheme();
   const { colors } = theme;
 
-  // State
   const [loading, setLoading] = useState(false);
   const [stats, setStats] = useState<IAdvancedExpenseStats | null>(null);
 
-  // Default to current month/year
   const now = new Date();
   const [selectedDate, setSelectedDate] = useState({
     year: now.getFullYear(),
     month: now.getMonth() + 1,
   });
 
-  // Generate last 18 months for selector
   const availableMonths = useMemo(() => {
     const months = [];
     const current = new Date();
@@ -77,102 +73,17 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
   };
 
   const handleDownloadReport = async () => {
-    if (!stats) return;
+    if (!stats?.selectedLedger?._id) {
+      Alert.alert(
+        "No Data",
+        "No ledger found for this month. Add some expenses first.",
+      );
+      return;
+    }
     try {
-      const html = `
-        <html>
-          <head>
-            <style>
-              body { font-family: 'Helvetica', sans-serif; padding: 20px; color: #333; }
-              h1 { color: ${colors.primary}; text-align: center; }
-              .header { margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
-              .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 30px; }
-              .card { background: #f9f9f9; padding: 15px; border-radius: 8px; text-align: center; }
-              .card h3 { margin: 0; font-size: 24px; color: ${colors.primary}; }
-              .card p { margin: 5px 0 0; font-size: 14px; color: #666; }
-              table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-              th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
-              th { background-color: #f2f2f2; }
-              .amount { font-weight: bold; }
-              .credit { color: green; }
-              .debit { color: red; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1>Expense Report</h1>
-              <p style="text-align: center;">
-                Period: ${new Date(stats.selectedMonth.year, stats.selectedMonth.month - 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-              </p>
-            </div>
-
-            <div class="summary-grid">
-              <div class="card">
-                <h3>₹${stats.summary.total.toFixed(2)}</h3>
-                <p>Total Spent</p>
-              </div>
-              <div class="card">
-                <h3>${stats.summary.count}</h3>
-                <p>Transactions</p>
-              </div>
-              <div class="card">
-                <h3>₹${stats.summary.avgDailySpend.toFixed(2)}</h3>
-                <p>Daily Average</p>
-              </div>
-            </div>
-
-            <h2>Top Expenses</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Category / Remarks</th>
-                  <th>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${stats.top5Expenses
-                  .map(
-                    (t) => `
-                  <tr>
-                    <td>${new Date(t.date).toLocaleDateString()}</td>
-                    <td>${t.category || t.remarks || "Uncategorized"}</td>
-                    <td class="amount">₹${t.amount.toFixed(2)}</td>
-                  </tr>
-                `,
-                  )
-                  .join("")}
-              </tbody>
-            </table>
-
-            <h2>Category Breakdown</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Category</th>
-                  <th>Transactions</th>
-                  <th>Total</th>
-                  <th>%</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${stats.categoryBreakdown
-                  .map(
-                    (c) => `
-                  <tr>
-                    <td>${c.name}</td>
-                    <td>${c.count}</td>
-                    <td>₹${c.total.toFixed(2)}</td>
-                    <td>${c.percentage}%</td>
-                  </tr>
-                `,
-                  )
-                  .join("")}
-              </tbody>
-            </table>
-          </body>
-        </html>
-      `;
+      const response = await getExpenseExportHtmlApi(stats.selectedLedger._id);
+      const html = response.data?.html;
+      if (!html) throw new Error("No HTML returned from server");
 
       const { uri } = await Print.printToFileAsync({ html });
       await Sharing.shareAsync(uri, {
@@ -239,60 +150,114 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
     </ScrollView>
   );
 
-  const renderSummaryCards = () => (
-    <View style={styles.summaryContainer}>
+  const renderSummaryCards = () => {
+    const s = stats?.summary;
+    const net = s?.net ?? 0;
+    const netColor = net >= 0 ? colors.credit : colors.danger;
+    const netLabel = net >= 0 ? "Surplus" : "Deficit";
+
+    return (
+      <View style={styles.summaryGrid}>
+        {/* Debited */}
+        <View
+          style={[
+            styles.summaryCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
+          <View style={[styles.summaryIcon, { backgroundColor: "#FEE2E230" }]}>
+            <Ionicons name="arrow-up-circle-outline" size={20} color={colors.danger} />
+          </View>
+          <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
+            Debited
+          </Text>
+          <Text style={[styles.summaryValue, { color: colors.danger }]} numberOfLines={1}>
+            {loading ? "..." : `₹${Math.round(s?.totalDebits ?? 0).toLocaleString()}`}
+          </Text>
+          <Text style={[styles.summaryCount, { color: colors.textTertiary }]}>
+            {s?.debitCount ?? 0} txns
+          </Text>
+        </View>
+
+        {/* Credited */}
+        <View
+          style={[
+            styles.summaryCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
+          <View style={[styles.summaryIcon, { backgroundColor: "#D1FAE530" }]}>
+            <Ionicons name="arrow-down-circle-outline" size={20} color={colors.credit} />
+          </View>
+          <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
+            Credited
+          </Text>
+          <Text style={[styles.summaryValue, { color: colors.credit }]} numberOfLines={1}>
+            {loading ? "..." : `₹${Math.round(s?.totalCredits ?? 0).toLocaleString()}`}
+          </Text>
+          <Text style={[styles.summaryCount, { color: colors.textTertiary }]}>
+            {s?.creditCount ?? 0} txns
+          </Text>
+        </View>
+
+        {/* Net */}
+        <View
+          style={[
+            styles.summaryCard,
+            { backgroundColor: colors.surface, borderColor: colors.border },
+          ]}
+        >
+          <View style={[styles.summaryIcon, { backgroundColor: netColor + "20" }]}>
+            <Ionicons
+              name={net >= 0 ? "trending-up-outline" : "trending-down-outline"}
+              size={20}
+              color={netColor}
+            />
+          </View>
+          <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
+            {netLabel}
+          </Text>
+          <Text style={[styles.summaryValue, { color: netColor }]} numberOfLines={1}>
+            {loading ? "..." : `₹${Math.round(Math.abs(net)).toLocaleString()}`}
+          </Text>
+          <Text style={[styles.summaryCount, { color: colors.textTertiary }]}>
+            {s?.activeDays ?? 0} active days
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderAvgRow = () => {
+    const s = stats?.summary;
+    if (!s) return null;
+    return (
       <View
         style={[
-          styles.summaryCard,
+          styles.avgRow,
           { backgroundColor: colors.surface, borderColor: colors.border },
         ]}
       >
-        <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-          Total
-        </Text>
-        <Text
-          style={[styles.summaryValue, { color: colors.danger }]}
-          numberOfLines={1}
-        >
-          {loading ? "..." : `₹${stats?.summary.total.toLocaleString() || "0"}`}
-        </Text>
+        <View style={styles.avgItem}>
+          <Text style={[styles.avgLabel, { color: colors.textSecondary }]}>
+            Avg Daily Debit
+          </Text>
+          <Text style={[styles.avgValue, { color: colors.danger }]}>
+            ₹{Math.round(s.avgDailyDebit).toLocaleString()}
+          </Text>
+        </View>
+        <View style={[styles.avgDivider, { backgroundColor: colors.separator }]} />
+        <View style={styles.avgItem}>
+          <Text style={[styles.avgLabel, { color: colors.textSecondary }]}>
+            Avg Daily Credit
+          </Text>
+          <Text style={[styles.avgValue, { color: colors.credit }]}>
+            ₹{Math.round(s.avgDailyCredit).toLocaleString()}
+          </Text>
+        </View>
       </View>
-      <View
-        style={[
-          styles.summaryCard,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-      >
-        <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-          Txns
-        </Text>
-        <Text
-          style={[styles.summaryValue, { color: colors.text }]}
-          numberOfLines={1}
-        >
-          {loading ? "..." : stats?.summary.count || 0}
-        </Text>
-      </View>
-      <View
-        style={[
-          styles.summaryCard,
-          { backgroundColor: colors.surface, borderColor: colors.border },
-        ]}
-      >
-        <Text style={[styles.summaryLabel, { color: colors.textSecondary }]}>
-          Avg/Day
-        </Text>
-        <Text
-          style={[styles.summaryValue, { color: colors.primary }]}
-          numberOfLines={1}
-        >
-          {loading
-            ? "..."
-            : `₹${Math.round(stats?.summary.avgDailySpend || 0)}`}
-        </Text>
-      </View>
-    </View>
-  );
+    );
+  };
 
   const renderCharts = () => {
     if (!stats || loading)
@@ -304,78 +269,115 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
         />
       );
 
-    // Monthly Trend Data
-    const trendLabels = stats.monthlyTrend
-      .map((m) => {
-        const [y, mo] = m.month.split("-");
-        const date = new Date(parseInt(y), parseInt(mo) - 1);
-        return date.toLocaleDateString("en-US", { month: "short" });
-      })
-      .slice(-6); // Last 6 months only
+    // --- Monthly Trend (last 6 months, debit bars) ---
+    const trend = stats.monthlyTrend.slice(-6);
+    const trendLabels = trend.map((m) => {
+      const [y, mo] = m.month.split("-");
+      return new Date(parseInt(y), parseInt(mo) - 1).toLocaleDateString(
+        "en-US",
+        { month: "short" },
+      );
+    });
+    const debitTrendValues = trend.map((m) => m.debitTotal || 0);
+    const creditTrendValues = trend.map((m) => m.creditTotal || 0);
 
-    const trendValues = stats.monthlyTrend.map((m) => m.total).slice(-6);
+    // --- Daily breakdown: debit line ---
+    const daily = stats.dailyBreakdown;
+    const dailyLabels = daily.map((d) => d.date.split("-")[2]);
+    const debitDailyValues = daily.map((d) => d.debitTotal || 0);
+    const creditDailyValues = daily.map((d) => d.creditTotal || 0);
 
-    // Daily Spend Data (Sample down if too many days for cleaner chart)
-    const dailyLabels = stats.dailyBreakdown.map((d) => d.date.split("-")[2]); // Day only
-    const dailyValues = stats.dailyBreakdown.map((d) => d.total);
-
-    // Pie Chart Data
+    // --- Pie chart (debit categories only) ---
     const pieData = stats.categoryBreakdown.slice(0, 5).map((c, i) => ({
       name: c.name,
       population: c.total,
-      color: ["#FF6384", "#36A2EB", "#FFCE56", "#4BC0C0", "#9966FF"][i % 5],
+      color: ["#EF4444", "#F97316", "#EAB308", "#8B5CF6", "#EC4899"][i % 5],
       legendFontColor: colors.textSecondary,
       legendFontSize: 12,
     }));
 
+    const hasDebitTrend = debitTrendValues.some((v) => v > 0);
+    const hasCreditTrend = creditTrendValues.some((v) => v > 0);
+    const hasDaily = daily.length > 0;
+
     return (
       <View style={{ gap: 24, paddingBottom: 40 }}>
-        {/* Monthly Trend */}
+        {/* Monthly Comparison — Debit vs Credit */}
         <View>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Last 6 Months Trend
+            6-Month Trend
           </Text>
-          {trendValues.length > 0 ? (
+          <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>
+            Debit spending
+          </Text>
+          {hasDebitTrend ? (
             <BarChart
               data={{
                 labels: trendLabels,
-                datasets: [{ data: trendValues }],
+                datasets: [{ data: debitTrendValues, color: () => colors.danger }],
               }}
               width={SCREEN_WIDTH - 32}
-              height={220}
+              height={180}
               yAxisLabel="₹"
               yAxisSuffix=""
-              chartConfig={chartConfig}
+              chartConfig={{
+                ...chartConfig,
+                color: () => colors.danger,
+              }}
               style={{ borderRadius: 16, marginTop: 8 }}
-              showValuesOnTopOfBars={false} // Clean look
+              showValuesOnTopOfBars={false}
             />
           ) : (
-            <Text
-              style={{
-                color: colors.textSecondary,
-                fontStyle: "italic",
-                margin: 10,
+            <Text style={[styles.emptyChart, { color: colors.textSecondary }]}>
+              No debit data this period.
+            </Text>
+          )}
+          <Text style={[styles.sectionSubtitle, { color: colors.textSecondary, marginTop: 12 }]}>
+            Credit income
+          </Text>
+          {hasCreditTrend ? (
+            <BarChart
+              data={{
+                labels: trendLabels,
+                datasets: [{ data: creditTrendValues, color: () => colors.credit }],
               }}
-            >
-              No trend data available.
+              width={SCREEN_WIDTH - 32}
+              height={180}
+              yAxisLabel="₹"
+              yAxisSuffix=""
+              chartConfig={{
+                ...chartConfig,
+                color: () => colors.credit,
+              }}
+              style={{ borderRadius: 16, marginTop: 8 }}
+              showValuesOnTopOfBars={false}
+            />
+          ) : (
+            <Text style={[styles.emptyChart, { color: colors.textSecondary }]}>
+              No credit data this period.
             </Text>
           )}
         </View>
 
-        {/* Daily Spend */}
-        <View>
-          <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Daily Spending ({stats.selectedMonth.month}/
-            {stats.selectedMonth.year})
-          </Text>
-          {dailyValues.length > 0 ? (
+        {/* Daily Debit Line */}
+        {hasDaily && debitDailyValues.some((v) => v > 0) && (
+          <View>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Daily Spending ({stats.selectedMonth.month}/{stats.selectedMonth.year})
+            </Text>
             <LineChart
               data={{
-                labels: dailyLabels.map((l, i) => (i % 5 === 0 ? l : "")), // Show every 5th label
-                datasets: [{ data: dailyValues }],
+                labels: dailyLabels.map((l, i) => (i % 5 === 0 ? l : "")),
+                datasets: [
+                  {
+                    data: debitDailyValues,
+                    color: () => colors.danger,
+                    strokeWidth: 2,
+                  },
+                ],
               }}
               width={SCREEN_WIDTH - 32}
-              height={220}
+              height={200}
               yAxisLabel="₹"
               chartConfig={{
                 ...chartConfig,
@@ -384,20 +386,40 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
               bezier
               style={{ borderRadius: 16, marginTop: 8 }}
             />
-          ) : (
-            <Text
-              style={{
-                color: colors.textSecondary,
-                fontStyle: "italic",
-                margin: 10,
-              }}
-            >
-              No daily data available.
-            </Text>
-          )}
-        </View>
+          </View>
+        )}
 
-        {/* Categories */}
+        {/* Daily Credit Line */}
+        {hasDaily && creditDailyValues.some((v) => v > 0) && (
+          <View>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Daily Credits ({stats.selectedMonth.month}/{stats.selectedMonth.year})
+            </Text>
+            <LineChart
+              data={{
+                labels: dailyLabels.map((l, i) => (i % 5 === 0 ? l : "")),
+                datasets: [
+                  {
+                    data: creditDailyValues,
+                    color: () => colors.credit,
+                    strokeWidth: 2,
+                  },
+                ],
+              }}
+              width={SCREEN_WIDTH - 32}
+              height={200}
+              yAxisLabel="₹"
+              chartConfig={{
+                ...chartConfig,
+                propsForDots: { r: "3", fill: colors.credit },
+              }}
+              bezier
+              style={{ borderRadius: 16, marginTop: 8 }}
+            />
+          </View>
+        )}
+
+        {/* Category Breakdown (debits only) */}
         <View>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
             Category Breakdown
@@ -414,55 +436,29 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
                 paddingLeft={"15"}
                 absolute
               />
-              {/* Detailed List */}
               <View style={{ marginTop: 16, gap: 8 }}>
                 {stats.categoryBreakdown.map((item, index) => (
                   <View key={index} style={styles.categoryRow}>
-                    <View
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        flex: 1,
-                      }}
-                    >
+                    <View style={{ flexDirection: "row", alignItems: "center", flex: 1 }}>
                       <View
-                        style={{
-                          width: 12,
-                          height: 12,
-                          borderRadius: 6,
-                          backgroundColor:
-                            index < 5
-                              ? [
-                                  "#FF6384",
-                                  "#36A2EB",
-                                  "#FFCE56",
-                                  "#4BC0C0",
-                                  "#9966FF",
-                                ][index]
-                              : colors.border,
-                          marginRight: 8,
-                        }}
+                        style={[
+                          styles.categoryDot,
+                          {
+                            backgroundColor:
+                              index < 5
+                                ? ["#EF4444", "#F97316", "#EAB308", "#8B5CF6", "#EC4899"][index]
+                                : colors.border,
+                          },
+                        ]}
                       />
                       <Text style={{ color: colors.text, fontSize: 14 }}>
                         {item.name}
                       </Text>
                     </View>
-                    <Text
-                      style={{
-                        color: colors.textSecondary,
-                        fontSize: 13,
-                        marginRight: 12,
-                      }}
-                    >
+                    <Text style={{ color: colors.textSecondary, fontSize: 13, marginRight: 12 }}>
                       {item.percentage}%
                     </Text>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontWeight: "600",
-                        fontSize: 14,
-                      }}
-                    >
+                    <Text style={{ color: colors.danger, fontWeight: "600", fontSize: 14 }}>
                       ₹{item.total.toLocaleString()}
                     </Text>
                   </View>
@@ -470,14 +466,8 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
               </View>
             </>
           ) : (
-            <Text
-              style={{
-                color: colors.textSecondary,
-                fontStyle: "italic",
-                margin: 10,
-              }}
-            >
-              No category data available.
+            <Text style={[styles.emptyChart, { color: colors.textSecondary }]}>
+              No debit expense categories this month.
             </Text>
           )}
         </View>
@@ -485,7 +475,7 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
         {/* Top 5 Expenses */}
         <View>
           <Text style={[styles.sectionTitle, { color: colors.text }]}>
-            Top Large Expenses
+            Top Expenses
           </Text>
           {stats.top5Expenses.length > 0 ? (
             stats.top5Expenses.map((expense) => (
@@ -493,25 +483,14 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
                 key={expense._id}
                 style={[
                   styles.topExpenseCard,
-                  {
-                    backgroundColor: colors.surface,
-                    borderColor: colors.border,
-                  },
+                  { backgroundColor: colors.surface, borderColor: colors.border },
                 ]}
               >
                 <View style={{ flex: 1 }}>
-                  <Text
-                    style={[
-                      styles.expenseDate,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
+                  <Text style={[styles.expenseDate, { color: colors.textSecondary }]}>
                     {new Date(expense.date).toLocaleDateString()}
                   </Text>
-                  <Text
-                    style={[styles.expenseName, { color: colors.text }]}
-                    numberOfLines={1}
-                  >
+                  <Text style={[styles.expenseName, { color: colors.text }]} numberOfLines={1}>
                     {expense.remarks || expense.category || "Uncategorized"}
                   </Text>
                 </View>
@@ -521,13 +500,7 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
               </View>
             ))
           ) : (
-            <Text
-              style={{
-                color: colors.textSecondary,
-                fontStyle: "italic",
-                margin: 10,
-              }}
-            >
+            <Text style={[styles.emptyChart, { color: colors.textSecondary }]}>
               No expenses found.
             </Text>
           )}
@@ -567,6 +540,7 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
 
       <ScrollView contentContainerStyle={styles.content}>
         {renderSummaryCards()}
+        {renderAvgRow()}
         {renderCharts()}
       </ScrollView>
     </SafeAreaView>
@@ -602,30 +576,54 @@ const styles = StyleSheet.create({
   },
   monthPillText: { fontSize: 13, fontWeight: "600" },
 
-  content: {
-    padding: 16,
-  },
-  summaryContainer: {
+  content: { padding: 16 },
+
+  summaryGrid: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 24,
     gap: 10,
+    marginBottom: 12,
   },
   summaryCard: {
     flex: 1,
     padding: 12,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
+    alignItems: "flex-start",
+    gap: 4,
+  },
+  summaryIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 4,
+  },
+  summaryLabel: { fontSize: 11, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.3 },
+  summaryValue: { fontSize: 15, fontWeight: "800" },
+  summaryCount: { fontSize: 10 },
+
+  avgRow: {
+    flexDirection: "row",
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 24,
+    overflow: "hidden",
+  },
+  avgItem: {
+    flex: 1,
+    padding: 14,
     alignItems: "center",
   },
-  summaryLabel: { fontSize: 12, marginBottom: 4, fontWeight: "500" },
-  summaryValue: { fontSize: 16, fontWeight: "700" },
-
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 12,
+  avgDivider: {
+    width: 1,
   },
+  avgLabel: { fontSize: 11, fontWeight: "600", marginBottom: 4 },
+  avgValue: { fontSize: 16, fontWeight: "800" },
+
+  sectionTitle: { fontSize: 17, fontWeight: "800", marginBottom: 4 },
+  sectionSubtitle: { fontSize: 12, fontWeight: "600", marginBottom: 4 },
+  emptyChart: { fontStyle: "italic", margin: 10 },
 
   categoryRow: {
     flexDirection: "row",
@@ -633,13 +631,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 4,
   },
+  categoryDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8,
+  },
 
   topExpenseCard: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     padding: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     marginBottom: 8,
   },

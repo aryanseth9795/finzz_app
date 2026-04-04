@@ -10,6 +10,7 @@ import {
   Modal,
   TextInput,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -27,7 +28,6 @@ import {
   updateAvatar,
   logout as logoutAction,
 } from "../../store/slices/authSlice";
-import { setLogoutCallback } from "../../api/axios";
 
 const AccountScreen = ({ navigation }: any) => {
   const { theme, toggleTheme, isDark } = useTheme();
@@ -137,22 +137,22 @@ const AccountScreen = ({ navigation }: any) => {
     {
       icon: "notifications-outline" as const,
       label: "Notifications",
-      onPress: () => {},
+      onPress: () => navigation.navigate("Notifications"),
     },
     {
       icon: "shield-outline" as const,
       label: "Privacy",
-      onPress: () => {},
+      onPress: () => navigation.navigate("Privacy"),
     },
     {
       icon: "help-circle-outline" as const,
       label: "Help & Support",
-      onPress: () => {},
+      onPress: () => navigation.navigate("HelpSupport"),
     },
     {
       icon: "information-circle-outline" as const,
       label: "About Finzz",
-      onPress: () => {},
+      onPress: () => navigation.navigate("AboutFinzz"),
     },
   ];
 
@@ -423,7 +423,7 @@ const AccountScreen = ({ navigation }: any) => {
         presentationStyle="pageSheet"
         onRequestClose={() => setShowChangePwd(false)}
       >
-        <View
+        <SafeAreaView
           style={[
             styles.modalContainer,
             { backgroundColor: colors.background },
@@ -512,7 +512,7 @@ const AccountScreen = ({ navigation }: any) => {
               style={{ marginTop: 24 }}
             />
           </View>
-        </View>
+        </SafeAreaView>
       </Modal>
     </SafeAreaWrapper>
   );

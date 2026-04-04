@@ -10,7 +10,7 @@ interface RetryConfig extends InternalAxiosRequestConfig {
 // Create axios instance
 const api = axios.create({
   baseURL: BASE_URL,
-  timeout: 10000,
+  timeout: 15000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -21,6 +21,27 @@ let onLogout: (() => void) | null = null;
 
 export const setLogoutCallback = (callback: () => void) => {
   onLogout = callback;
+};
+
+// ========================
+// Refresh queue management
+// Prevents multiple concurrent refresh calls
+// ========================
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (error: any) => void;
+}> = [];
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach(({ resolve, reject }) => {
+    if (error) {
+      reject(error);
+    } else {
+      resolve(token!);
+    }
+  });
+  failedQueue = [];
 };
 
 // ========================
@@ -40,7 +61,7 @@ api.interceptors.request.use(
 
 // ========================
 // Response Interceptor
-// Auto-refresh on 401 errors
+// Auto-refresh on 401 errors with queuing
 // ========================
 api.interceptors.response.use(
   (response) => response,
@@ -57,13 +78,28 @@ api.interceptors.response.use(
     }
 
     if (error.response?.status === 401) {
+      // If already refreshing, queue this request
+      if (isRefreshing) {
+        return new Promise<string>((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((newToken) => {
+            originalRequest.headers.Authorization = `Bearer ${newToken}`;
+            return api(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
+      }
+
       originalRequest._retry = true;
+      isRefreshing = true;
 
       try {
         const refreshToken = await tokenManager.getRefreshToken();
         if (!refreshToken) throw new Error("No refresh token");
 
-        // Call refresh with refresh token in Authorization header
+        // Call refresh endpoint with refresh token
         const response = await axios.post(
           `${BASE_URL}/users/refresh`,
           {},
@@ -71,6 +107,7 @@ api.interceptors.response.use(
             headers: {
               Authorization: `Bearer ${refreshToken}`,
             },
+            timeout: 15000,
           },
         );
 
@@ -80,14 +117,20 @@ api.interceptors.response.use(
         await tokenManager.setAccessToken(access_token);
         await tokenManager.setRefreshToken(refresh_token);
 
+        // Unblock queued requests
+        processQueue(null, access_token);
+
         // Retry original request with new token
         originalRequest.headers.Authorization = `Bearer ${access_token}`;
         return api(originalRequest);
-      } catch {
-        // Refresh failed — force logout
+      } catch (refreshError) {
+        // Refresh failed — force logout and reject all queued
+        processQueue(refreshError, null);
         await tokenManager.clearAll();
         onLogout?.();
         return Promise.reject(error);
+      } finally {
+        isRefreshing = false;
       }
     }
 
