@@ -10,7 +10,29 @@ export const registerApi = (
   password: string,
 ) => api.post("/users/register", { name, phone, email, password });
 
-export const logoutApi = () => api.get("/users/logout");
+/**
+ * Sign out.
+ *
+ * Sends the refresh token so the server revokes only THIS device's grant —
+ * signing out on a phone no longer signs the user out on their tablet — and
+ * the push token so notifications for this account stop being delivered here.
+ *
+ * That second part is the fix for a real privacy leak: the device's push
+ * token stayed attached to the signed-out account for ever, so every "X added
+ * a transaction — ₹5,000" notification for the previous user kept arriving on
+ * the lock screen of whoever used the device next.
+ */
+export const logoutApi = (payload?: {
+  refreshToken?: string | null;
+  pushToken?: string | null;
+}) =>
+  api.post("/users/logout", {
+    refreshToken: payload?.refreshToken ?? undefined,
+    pushToken: payload?.pushToken ?? undefined,
+  });
+
+export const removePushTokenApi = (pushToken?: string | null) =>
+  api.post("/users/remove-push-token", { pushToken: pushToken ?? undefined });
 
 export const refreshTokenApi = (refreshToken: string) =>
   api.post(
