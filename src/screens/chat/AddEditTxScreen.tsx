@@ -21,6 +21,15 @@ import { addTxApi, editTxApi } from "../../api/txApi";
 import { useAppSelector, useAppDispatch } from "../../store";
 import { addTx, updateTx } from "../../store/slices/chatSlice";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
+import { describeError } from "../../api/axios";
+import { isRefTo, refId } from "../../utils/entities";
+import { parseAmount } from "../../utils/money";
+import {
+  toApiDate,
+  fromApiDate,
+  pickerMinimumDate,
+  pickerMaximumDate,
+} from "../../utils/dates";
 import { ITx } from "../../types";
 
 
@@ -35,53 +44,89 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
   const isEditing = !!tx;
 
   const [amount, setAmount] = useState(isEditing ? String(tx.amount) : "");
+
+  /**
+   * Direction of the money.
+   *
+   * Was `tx.from === user?._id ? "gave" : "received"`. `getTxns` POPULATES
+   * `from`/`to` into objects while `types/index.ts` declared them as strings,
+   * so that comparison was always false against a populated transaction — and
+   * the toggle initialised to "I Received" regardless of the truth.
+   *
+   * A user resubmitting a rejected "I gave ₹5,000" got a form pre-set to the
+   * opposite direction. Fixing only the remark and saving reversed the flow of
+   * money — a ₹10,000 swing — and sent it for the counterparty's approval
+   * looking entirely legitimate.
+   *
+   * `isRefTo` narrows both shapes, so it cannot silently disagree again.
+   */
   const [direction, setDirection] = useState<"gave" | "received">(
-    isEditing ? (tx.from === user?._id ? "gave" : "received") : "gave",
+    isEditing && isRefTo(tx.from, user?._id) ? "gave" : isEditing ? "received" : "gave",
   );
-  const [date, setDate] = useState(isEditing ? new Date(tx.date) : new Date());
+
+  const [date, setDate] = useState(
+    isEditing ? fromApiDate(tx.date) : new Date(),
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [remarks, setRemarks] = useState(isEditing ? tx.remarks || "" : "");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    const numAmount = parseFloat(amount);
-    if (!amount || isNaN(numAmount) || numAmount <= 0) {
+    // Centralised parsing: rejects NaN explicitly rather than relying on
+    // comparisons, every one of which is false against NaN.
+    const parsed = parseAmount(amount);
+    if (!parsed.ok) {
+      Alert.alert("Invalid Amount", parsed.message);
+      return;
+    }
+    const numAmount = parsed.value;
+
+    if (isEditing && tx.status !== "rejected") {
+      // One guard, not two: the previous pair checked `status === "verified"`
+      // and then `status !== "rejected"`, the second subsuming the first.
       Alert.alert(
-        "Invalid Amount",
-        "Please enter a valid amount greater than 0",
+        "Cannot Edit",
+        tx.status === "verified"
+          ? "Verified transactions cannot be edited."
+          : "You can only edit a transaction after the other person has rejected it.",
       );
       return;
     }
 
-    if (numAmount >= 10000000) {
-      Alert.alert("Amount Too Large", "Amount must be less than ₹1 Crore");
-      return;
-    }
+    /**
+     * The counterparty's id.
+     *
+     * `friend?._id || (tx?.to === user?._id ? tx?.from : tx?.to)` could yield a
+     * populated OBJECT, which was then sent as `to`/`from` — writing garbage
+     * participants into the ledger and the monthly summary.
+     */
+    const friendId =
+      refId(friend) ??
+      (isRefTo(tx?.to, user?._id) ? refId(tx?.from) : refId(tx?.to));
 
-    if (isEditing && tx.status === "verified") {
-      Alert.alert("Cannot Edit", "Verified transactions cannot be edited");
-      return;
-    }
-
-    if (isEditing && tx.status !== "rejected") {
+    if (!friendId || !user?._id) {
       Alert.alert(
-        "Cannot Edit",
-        "You can only edit a transaction that has been rejected by the other person.",
+        "Cannot Save",
+        "Could not identify the other person in this chat. Please reopen the chat and try again.",
       );
       return;
     }
 
     setLoading(true);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+      () => undefined,
+    );
 
-    const friendId = friend?._id || (tx?.to === user?._id ? tx?.from : tx?.to);
     const payload = {
       chatId,
       amount: numAmount,
-      date: date.toISOString(),
+      // UTC midnight of the calendar date the user actually picked. Local
+      // midnight through `.toISOString()` shifted an IST user's 1st of the
+      // month into the previous month on the server.
+      date: toApiDate(date),
       remarks: remarks.trim() || undefined,
-      to: direction === "gave" ? friendId : user?._id || "",
-      from: direction === "gave" ? user?._id || "" : friendId,
+      to: direction === "gave" ? friendId : user._id,
+      from: direction === "gave" ? user._id : friendId,
     };
 
     try {
@@ -92,7 +137,6 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
         const response = await addTxApi(payload);
         dispatch(addTx(response.data.txn || response.data));
       }
-      // Invalidate all cached txns for this chat across all months
       await cacheManager.removeByPrefix(CACHE_KEYS.TRANSACTIONS_PREFIX(chatId));
       await cacheManager.remove(CACHE_KEYS.CHATS);
       showSuccessToast(
@@ -100,11 +144,9 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
         numAmount,
       );
       navigation.goBack();
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Something went wrong",
-      );
+    } catch (error) {
+      // Stay on the form so the user's input is not lost.
+      Alert.alert("Could not save", describeError(error));
     } finally {
       setLoading(false);
     }
@@ -317,15 +359,28 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
                   value={date}
                   mode="date"
                   display={Platform.OS === "ios" ? "spinner" : "default"}
-                  minimumDate={
-                    new Date(new Date().getFullYear(), new Date().getMonth(), 1)
-                  }
-                  maximumDate={new Date()}
+                  /**
+                   * Bounds must include the value being edited.
+                   *
+                   * These were hardcoded to the 1st of the CURRENT month and
+                   * today. Editing a rejected transaction from a previous
+                   * month put `value` outside the range, so the Android picker
+                   * clamped to the minimum and fired `onChange` without the
+                   * user touching anything — silently moving the transaction
+                   * to the 1st of this month.
+                   */
+                  minimumDate={pickerMinimumDate(isEditing ? tx.date : null)}
+                  maximumDate={pickerMaximumDate(isEditing ? tx.date : null)}
                   onChange={(event, selectedDate) => {
                     if (Platform.OS === "android") {
                       setShowDatePicker(false);
                     }
-                    if (selectedDate) setDate(selectedDate);
+                    // Only accept a deliberate selection. Android emits a
+                    // "dismissed" event too, which previously still applied
+                    // whatever date the picker happened to hold.
+                    if (event.type === "set" && selectedDate) {
+                      setDate(selectedDate);
+                    }
                   }}
                   textColor={colors.text}
                 />
@@ -362,6 +417,11 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
                   onChangeText={setRemarks}
                   placeholder="e.g., Lunch, Movie tickets..."
                   placeholderTextColor={colors.textTertiary}
+                  // Matches the server's 200-character limit. Without it the
+                  // payload was unbounded and a long remark failed validation
+                  // only after the user had finished typing it.
+                  maxLength={200}
+                  accessibilityLabel="Remarks, optional"
                   style={[
                     styles.textInput,
                     { color: colors.text, fontSize: fs.md },

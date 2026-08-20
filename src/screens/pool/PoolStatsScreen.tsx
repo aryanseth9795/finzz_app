@@ -13,6 +13,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import { getPoolStatsApi } from "../../api/poolApi";
 import { IPoolStats } from "../../types";
+import { logger } from "../../utils/logger";
 
 const PoolStatsScreen = ({ route, navigation }: any) => {
   const { poolId } = route.params;
@@ -34,7 +35,7 @@ const PoolStatsScreen = ({ route, navigation }: any) => {
         setStats(res.data.stats);
       }
     } catch (error) {
-      console.error("Failed to fetch stats:", error);
+      logger.error("Failed to fetch stats:", error);
     } finally {
       setLoading(false);
     }
@@ -48,7 +49,7 @@ const PoolStatsScreen = ({ route, navigation }: any) => {
         setStats(res.data.stats);
       }
     } catch (error) {
-      console.error("Failed to refresh stats:", error);
+      logger.error("Failed to refresh stats:", error);
     } finally {
       setRefreshing(false);
     }

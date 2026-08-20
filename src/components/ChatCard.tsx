@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import dayjs from "dayjs";
 import { useTheme } from "../contexts/ThemeContext";
 import Avatar from "./ui/Avatar";
-import { IChat, IUser } from "../types";
+import { IChat } from "../types";
+import { otherMember, isRefTo } from "../utils/entities";
 
 interface ChatCardProps {
   chat: IChat;
@@ -19,10 +20,26 @@ const ChatCard: React.FC<ChatCardProps> = ({
   const { theme } = useTheme();
   const { colors, fontSize: fs, spacing: sp } = theme;
 
-  // Get the other member (friend) in the chat
-  const friend: IUser =
-    chat.members.find((m) => m._id !== currentUserId) || chat.members[0];
+  /**
+   * The counterparty, tolerating deleted users.
+   *
+   * `chat.members.find(m => m._id !== currentUserId)` threw a TypeError on a
+   * `null` member — inside `Array.prototype.find`, which is why it surfaced as
+   * an unexplained red screen rather than a handled error, on the HOME TAB,
+   * the app's landing screen.
+   *
+   * Nulls got there because the server's delete cascade left dangling
+   * ObjectIds that `populate` resolves to null. That cascade is fixed, but
+   * corrupt rows already exist in production, so the client must not assume
+   * they are gone.
+   */
+  const friend = otherMember(chat.members, currentUserId);
   const lastTx = chat.lastTransaction;
+
+  // A chat whose only other member was deleted still renders, as a tombstone,
+  // rather than taking down the whole list.
+  const displayName = friend?.name ?? "Deleted user";
+  const isCredit = isRefTo(lastTx?.to, currentUserId);
 
   const formatDate = (dateStr?: string): string => {
     if (!dateStr) return "";
@@ -34,7 +51,6 @@ const ChatCard: React.FC<ChatCardProps> = ({
     return date.format("DD/MM/YY");
   };
 
-  const isCredit = lastTx?.to === currentUserId;
 
   return (
     <TouchableOpacity
@@ -47,7 +63,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
         },
       ]}
     >
-      <Avatar uri={friend.avatar} name={friend.name} size={56} />
+      <Avatar uri={friend?.avatar} name={displayName} size={56} />
 
       <View style={styles.content}>
         <View style={styles.mainInfo}>
@@ -55,7 +71,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
             style={[styles.name, { color: colors.text, fontSize: fs.lg }]}
             numberOfLines={1}
           >
-            {friend.name}
+            {displayName}
           </Text>
           {lastTx ? (
             <Text

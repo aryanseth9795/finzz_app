@@ -36,6 +36,8 @@ import {
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { CACHE_DURATION } from "../../constants/api";
 import { ITx, IChatStats, IUser, IAvailableMonth } from "../../types";
+import { logger } from "../../utils/logger";
+import { describeError } from "../../api/axios";
 
 const ChatScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
@@ -109,7 +111,7 @@ const ChatScreen = ({ route, navigation }: any) => {
           },
         );
       } catch (error) {
-        console.error("Failed to fetch transactions:", error);
+        logger.error("Failed to fetch transactions:", error);
       } finally {
         dispatch(setTxLoading(false));
       }
@@ -127,7 +129,7 @@ const ChatScreen = ({ route, navigation }: any) => {
       const backendStats = response.data.stats;
       dispatch(setStats(backendStats));
     } catch (error) {
-      console.error("Failed to fetch stats:", error);
+      logger.error("Failed to fetch stats:", error);
     }
   }, [chatId, dispatch, selectedYear, selectedMonth]);
 
@@ -148,7 +150,7 @@ const ChatScreen = ({ route, navigation }: any) => {
         ]);
       }
     } catch (error) {
-      console.error("Failed to fetch months:", error);
+      logger.error("Failed to fetch months:", error);
     }
   }, [chatId]);
 
@@ -190,7 +192,7 @@ const ChatScreen = ({ route, navigation }: any) => {
         }),
       );
     } catch (error) {
-      console.error("Failed to load more:", error);
+      logger.error("Failed to load more:", error);
     } finally {
       setLoadingMore(false);
     }
@@ -252,8 +254,8 @@ const ChatScreen = ({ route, navigation }: any) => {
         mimeType: "application/pdf",
       });
     } catch (error) {
-      Alert.alert("Error", "Failed to generate PDF report");
-      console.error(error);
+      logger.error("PDF export failed", error);
+      Alert.alert("Could not create report", describeError(error));
     }
   };
 

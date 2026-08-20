@@ -25,8 +25,14 @@ import {
   getPoolByIdApi,
   getPoolTxnsApi,
   verifyPoolTxApi,
+  getPoolStatsApi,
 } from "../../api/poolApi";
-import { IPoolTx } from "../../types";
+import { describeError } from "../../api/axios";
+import { useToast } from "../../contexts/ToastContext";
+import { refId, refName } from "../../utils/entities";
+import { formatCurrency } from "../../utils/money";
+import { formatDate } from "../../utils/dates";
+import { IPoolTx, IPoolStats } from "../../types";
 
 const PoolChatScreen = ({ route, navigation }: any) => {
   const { poolId } = route.params;
@@ -36,93 +42,130 @@ const PoolChatScreen = ({ route, navigation }: any) => {
   const { activePool, transactions, txLoading, nextCursor, hasMore } =
     useAppSelector((state) => state.pool);
   const userId = useAppSelector((state) => state.auth.user?._id);
+  const { showSuccessToast } = useToast();
 
-  const [totalCredited, setTotalCredited] = useState(0);
-  const [totalDebited, setTotalDebited] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchPool();
-    fetchTransactions();
+  /**
+   * Pool totals come from the SERVER, not from the loaded page.
+   *
+   * THE BUG THIS FIXES
+   * The header's CREDITED / DEBITED / NET BALANCE figures were computed as:
+   *
+   *     transactions.filter(tx => tx.type === "credit")
+   *                 .reduce((sum, tx) => sum + tx.amount, 0)
+   *
+   * `transactions` is the cursor-paginated page set currently in Redux, not
+   * the pool. So the first render summed only page one, and the "balance"
+   * climbed as the user scrolled and more pages were appended. Two members
+   * who had scrolled different amounts saw different balances for the same
+   * pool — the primary figure of a shared-money feature, arithmetically wrong
+   * for any pool with more than one page.
+   *
+   * `getPoolStatsApi` already returned server-computed totals over the whole
+   * pool, and PoolStatsScreen already used it correctly. This screen simply
+   * did not.
+   */
+  const [stats, setStats] = useState<IPoolStats | null>(null);
 
-    return () => {
-      dispatch(resetPool());
-    };
-  }, [poolId]);
+  const totalCredited = stats?.totalCredited ?? 0;
+  const totalDebited = stats?.totalDebited ?? 0;
+  const netBalance = stats?.netBalance ?? 0;
 
-  useEffect(() => {
-    const credited = transactions
-      .filter((tx) => tx.type === "credit")
-      .reduce((sum, tx) => sum + tx.amount, 0);
-    const debited = transactions
-      .filter((tx) => tx.type === "debit")
-      .reduce((sum, tx) => sum + tx.amount, 0);
-
-    setTotalCredited(credited);
-    setTotalDebited(debited);
-  }, [transactions]);
-
-  // Refresh data when screen comes into focus (e.g., after adding a transaction)
-  useFocusEffect(
-    useCallback(() => {
-      fetchPool();
-      fetchTransactions();
-    }, [poolId]),
-  );
-
-  const fetchPool = async () => {
+  const fetchPool = useCallback(async () => {
     try {
       const res = await getPoolByIdApi(poolId);
       if (res.data.success) {
         dispatch(setActivePool(res.data.pool));
-      }
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to load pool",
-      );
-      navigation.goBack();
-    }
-  };
-
-  const fetchTransactions = async (cursor?: string) => {
-    try {
-      dispatch(setPoolTxLoading(true));
-      const res = await getPoolTxnsApi(poolId, cursor);
-      if (res.data.success) {
-        if (cursor) {
-          dispatch(appendPoolTransactions(res.data));
-        } else {
-          dispatch(setPoolTransactions(res.data));
-        }
+        setLoadError(null);
       }
     } catch (error) {
-      console.error("Failed to fetch transactions:", error);
-    } finally {
-      dispatch(setPoolTxLoading(false));
+      /**
+       * Do NOT navigate away.
+       *
+       * This catch previously ended in `navigation.goBack()`, and
+       * `handleRefresh` calls it — so a transient timeout during pull-to-refresh
+       * ejected the user from the pool mid-gesture. A 404 means the pool is
+       * genuinely gone; anything else means try again.
+       */
+      const status = (error as { response?: { status?: number } })?.response
+        ?.status;
+      if (status === 404 || status === 403) {
+        Alert.alert("Pool unavailable", "This pool no longer exists.");
+        navigation.goBack();
+        return;
+      }
+      setLoadError(describeError(error));
     }
-  };
+  }, [poolId, dispatch, navigation]);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await getPoolStatsApi(poolId);
+      if (res.data.success) setStats(res.data.stats);
+    } catch {
+      // Totals are supplementary; the ledger below is still usable without them.
+    }
+  }, [poolId]);
+
+  const fetchTransactions = useCallback(
+    async (cursor?: string) => {
+      try {
+        dispatch(setPoolTxLoading(true));
+        const res = await getPoolTxnsApi(poolId, cursor);
+        if (res.data.success) {
+          if (cursor) {
+            dispatch(appendPoolTransactions(res.data));
+          } else {
+            dispatch(setPoolTransactions(res.data));
+          }
+          setLoadError(null);
+        }
+      } catch (error) {
+        setLoadError(describeError(error));
+      } finally {
+        dispatch(setPoolTxLoading(false));
+      }
+    },
+    [poolId, dispatch],
+  );
+
+  // Reset on unmount so a different pool never renders with this one's rows.
+  useEffect(() => () => { dispatch(resetPool()); }, [dispatch, poolId]);
+
+  /**
+   * One fetch trigger, not two.
+   *
+   * A mount `useEffect` AND a `useFocusEffect` both fired during the initial
+   * mount, so opening a pool issued four requests where two suffice.
+   * `useFocusEffect` alone covers both cases: it runs on mount and on every
+   * subsequent focus.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      void fetchPool();
+      void fetchStats();
+      void fetchTransactions();
+    }, [fetchPool, fetchStats, fetchTransactions]),
+  );
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchPool(), fetchTransactions()]);
+    await Promise.all([fetchPool(), fetchStats(), fetchTransactions()]);
     setRefreshing(false);
   };
 
   const handleVerify = async (txnId: string) => {
     try {
       await verifyPoolTxApi(txnId);
-      fetchTransactions();
-      Alert.alert("Success", "Transaction verified!");
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to verify transaction",
-      );
+      // Refresh the totals too — verifying changes what the server reports.
+      await Promise.all([fetchTransactions(), fetchStats()]);
+      showSuccessToast("Transaction verified!");
+    } catch (error) {
+      Alert.alert("Could not verify", describeError(error));
     }
   };
-
-  const netBalance = totalCredited - totalDebited;
 
   const renderStatsBar = () => (
     <View style={styles.statsContainer}>

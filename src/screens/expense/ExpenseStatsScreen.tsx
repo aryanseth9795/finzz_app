@@ -18,6 +18,8 @@ import * as Sharing from "expo-sharing";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getAdvancedStatsApi, getExpenseExportHtmlApi } from "../../api/expenseApi";
 import { IAdvancedExpenseStats } from "../../types";
+import { logger } from "../../utils/logger";
+import { describeError } from "../../api/axios";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 
@@ -66,7 +68,7 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
         setStats(response.data.data);
       }
     } catch (error) {
-      console.error("Failed to load advanced stats:", error);
+      logger.error("Failed to load advanced stats:", error);
     } finally {
       setLoading(false);
     }
@@ -91,8 +93,8 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
         mimeType: "application/pdf",
       });
     } catch (error) {
-      Alert.alert("Error", "Failed to generate PDF report");
-      console.error(error);
+      logger.error("PDF export failed", error);
+      Alert.alert("Could not create report", describeError(error));
     }
   };
 

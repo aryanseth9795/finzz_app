@@ -12,6 +12,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import { getMonthlyReportApi, getPerFriendReportApi } from "../../api/statsApi";
 import { IMonthlyBreakdown } from "../../types";
+import { logger } from "../../utils/logger";
 
 const ReportScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
@@ -64,7 +65,7 @@ const ReportScreen = ({ route, navigation }: any) => {
 
         setMonthlyData(mappedReport);
       } catch (error) {
-        console.error("Failed to fetch report:", error);
+        logger.error("Failed to fetch report:", error);
       } finally {
         setLoading(false);
       }

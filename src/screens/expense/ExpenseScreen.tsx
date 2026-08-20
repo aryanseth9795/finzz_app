@@ -34,7 +34,9 @@ import {
 } from "../../api/expenseApi";
 import { IExpense, IExpenseLedger } from "../../types";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
+import { describeError } from "../../api/axios";
 import { CACHE_DURATION } from "../../constants/api";
+import { logger } from "../../utils/logger";
 
 const ExpenseScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
@@ -49,18 +51,26 @@ const ExpenseScreen = ({ navigation }: any) => {
   const [loadingMore, setLoadingMore] = useState(false);
   const [showLedgerPicker, setShowLedgerPicker] = useState(false);
 
-  // Initialize: Load ledgers and set active to current month
-  useEffect(() => {
-    loadLedgers();
-  }, []);
-
-  // Listen for refresh trigger from child screens
+  /**
+   * One trigger, not two.
+   *
+   * A mount effect AND a focus listener both ran on the initial mount, and
+   * each `loadLedgers` dispatched `setActiveLedger` with a NEW OBJECT
+   * IDENTITY — which re-triggered the `[activeLedger]` effect below and
+   * fetched the expense list again. Opening this tab issued four or more
+   * requests where two suffice, and `handleRefresh` closed the loop by
+   * running `loadLedgers` and `loadExpenses` concurrently, producing a third
+   * writer to the same slice.
+   *
+   * A focus listener alone covers both cases: it fires on mount and on every
+   * subsequent focus.
+   */
   useEffect(() => {
     const unsubscribe = navigation.addListener("focus", () => {
-      // Reload ledgers when screen comes into focus
-      loadLedgers();
+      void loadLedgers();
     });
     return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigation]);
 
   const loadLedgers = async (isManualRefresh = false) => {
@@ -77,7 +87,6 @@ const ExpenseScreen = ({ navigation }: any) => {
 
       const response = await getExpenseLedgersApi(currentYear, currentMonth);
       const ledgerList: IExpenseLedger[] = response.data.ledgers;
-      console.log(ledgerList);
       dispatch(setLedgers(ledgerList));
       await cacheManager.set(CACHE_KEYS.EXPENSE_LEDGERS, ledgerList);
 
@@ -110,16 +119,23 @@ const ExpenseScreen = ({ navigation }: any) => {
         dispatch(setActiveLedger(currentRealWorldLedger || ledgerList[0]));
       }
     } catch (error) {
-      console.error("Failed to load ledgers:", error);
+      logger.error("Failed to load ledgers:", error);
     }
   };
 
-  // Load expenses when active ledger changes
+  /**
+   * Depend on the ledger ID, not the ledger OBJECT.
+   *
+   * `loadLedgers` dispatches `setActiveLedger` on every focus, producing a new
+   * object identity even when the selected ledger has not changed — which made
+   * this effect refire and refetch the whole expense list each time.
+   */
   useEffect(() => {
-    if (activeLedger) {
-      loadExpenses(true);
+    if (activeLedger?._id) {
+      void loadExpenses(true);
     }
-  }, [activeLedger]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLedger?._id]);
 
   const loadExpenses = async (fresh = false) => {
     if (!activeLedger) return;
@@ -174,7 +190,7 @@ const ExpenseScreen = ({ navigation }: any) => {
         );
       }
     } catch (error) {
-      console.error("Failed to load expenses:", error);
+      logger.error("Failed to load expenses:", error);
       dispatch(setTxLoading(false));
     }
   };
@@ -202,22 +218,32 @@ const ExpenseScreen = ({ navigation }: any) => {
           style: "destructive",
           onPress: async () => {
             try {
-              // Optimistic update
+              // Optimistic removal, then confirm with the server.
               dispatch(removeExpense(expenseId));
-
-              // Call server
               await deleteExpenseApi(expenseId);
 
-              // Refresh ledger to get updated total
+              /**
+               * Invalidate the cache.
+               *
+               * Nothing did this before, so within the 60-second TTL the
+               * deleted expense was read straight back out of AsyncStorage on
+               * the next visit and re-rendered — then vanished again when the
+               * network response landed. A row that flickers in and out
+               * destroys trust in the totals above it.
+               */
+              await Promise.all([
+                cacheManager.remove(
+                  CACHE_KEYS.EXPENSES(activeLedger?._id ?? ""),
+                ),
+                cacheManager.remove(CACHE_KEYS.EXPENSE_LEDGERS),
+                cacheManager.remove(CACHE_KEYS.EXPENSE_STATS),
+              ]);
+
               await loadLedgers();
-            } catch (error: any) {
-              console.error("Failed to delete expense:", error);
-              Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to delete expense",
-              );
-              // Rollback: reload
-              loadExpenses(true);
+            } catch (error) {
+              Alert.alert("Could not delete", describeError(error));
+              // Roll back by refetching the authoritative list.
+              void loadExpenses(true);
             }
           },
         },

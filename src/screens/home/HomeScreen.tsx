@@ -20,6 +20,7 @@ import { setIncomingRequests } from "../../store/slices/friendSlice";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { CACHE_DURATION } from "../../constants/api";
 import { IChat } from "../../types";
+import { logger } from "../../utils/logger";
 
 const HomeScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
@@ -47,12 +48,12 @@ const HomeScreen = ({ navigation }: any) => {
 
         // Fetch fresh data
         const response = await getUserChatsApi();
-        console.log(response.data);
+        logger.debug(response.data);
         const freshChats = response.data.chats || response.data;
         dispatch(setChats(freshChats));
         await cacheManager.set(CACHE_KEYS.CHATS, freshChats);
       } catch (error) {
-        console.error("Failed to fetch chats:", error);
+        logger.error("Failed to fetch chats:", error);
       } finally {
         dispatch(setLoading(false));
       }
@@ -65,7 +66,7 @@ const HomeScreen = ({ navigation }: any) => {
       const response = await getPendingRequestsApi();
       dispatch(setIncomingRequests(response.data.incoming || []));
     } catch (error) {
-      console.log("Failed to fetch requests", error);
+      logger.debug("Failed to fetch requests", error);
     }
   }, [dispatch]);
 

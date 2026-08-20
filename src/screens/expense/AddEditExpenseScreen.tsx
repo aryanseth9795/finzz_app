@@ -21,6 +21,16 @@ import {
   editExpenseApi,
   checkDuplicateExpenseApi,
 } from "../../api/expenseApi";
+import { describeError } from "../../api/axios";
+import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
+import { parseAmount, formatCurrency } from "../../utils/money";
+import {
+  toApiDate,
+  fromApiDate,
+  formatDate,
+  pickerMinimumDate,
+  pickerMaximumDate,
+} from "../../utils/dates";
 import { IExpense } from "../../types";
 
 const AddEditExpenseScreen = ({ route, navigation }: any) => {
@@ -36,143 +46,131 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
   const [txnType, setTxnType] = useState<"debit" | "credit">(
     expense?.type || "debit",
   );
+  // `fromApiDate` reads UTC components, so a stored UTC-midnight value is not
+  // shifted back onto the previous day by the device's timezone.
   const [date, setDate] = useState(
-    expense ? new Date(expense.date) : new Date(),
+    expense ? fromApiDate(expense.date) : new Date(),
   );
   const [remarks, setRemarks] = useState(expense?.remarks || "");
   const [category, setCategory] = useState(expense?.category || "");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  /**
+   * Save an expense.
+   *
+   * THE BUG THIS REPLACES
+   * The previous flow was ordered:
+   *
+   *     dispatch(addExpense(tempExpense));   // optimistic insert
+   *     showSuccessToast("Expense added!");  // tell the user it worked
+   *     navigation.goBack();                 // leave the screen
+   *     await addExpenseApi(expenseData);    // …then actually save it
+   *
+   * The success toast and the navigation both fired BEFORE the request. On a
+   * failure the user had already been told it worked, had already left the
+   * form, and their input was gone — while a `temp_…` row sat in Redux
+   * rendering as a real expense until the next refetch silently deleted it.
+   *
+   * In a personal-finance ledger, the user's belief that an expense was
+   * recorded is the entire product. The screen now stays mounted until the
+   * server confirms, so a failure keeps the user on the form with their input
+   * intact and an actionable message.
+   */
   const handleSave = async () => {
-    if (!amount || parseFloat(amount) <= 0) {
-      Alert.alert("Invalid Amount", "Please enter a valid amount");
-      return;
-    }
-
-    if (parseFloat(amount) >= 10000000) {
-      Alert.alert("Amount Too Large", "Amount must be less than ₹1 Crore");
+    const parsed = parseAmount(amount);
+    if (!parsed.ok) {
+      Alert.alert("Invalid Amount", parsed.message);
       return;
     }
 
     const expenseData = {
-      amount: parseFloat(amount),
-      date: date.toISOString(),
+      amount: parsed.value,
+      // UTC midnight of the picked calendar date — see utils/dates.ts.
+      date: toApiDate(date),
       remarks: remarks.trim() || undefined,
       category: category.trim() || undefined,
       type: txnType,
     };
 
-    const proceedWithAdd = async () => {
+    const submit = async () => {
       setSaving(true);
       try {
-        const tempId = `temp_${Date.now()}`;
-        const tempExpense: IExpense = {
-          _id: tempId,
-          userId: "",
-          ledgerId: ledgerId || "",
-          ...expenseData,
-          type: txnType,
-          date: date.toISOString(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+        if (isEditing) {
+          const response = await editExpenseApi(expense._id, expenseData);
+          dispatch(updateExpense({ expense: response.data.expense }));
+        } else {
+          const response = await addExpenseApi(expenseData);
+          dispatch(addExpense(response.data.expense));
+        }
 
-        // Optimistic update
-        dispatch(addExpense(tempExpense));
+        /**
+         * Invalidate the cache for BOTH the previous and the new ledger.
+         *
+         * Nothing invalidated it before, so within the 60-second TTL a
+         * deleted or edited expense reappeared from AsyncStorage on the next
+         * visit and then vanished again when the network response landed.
+         *
+         * Both keys matter because the server may move the expense to a
+         * different month's ledger when its date changes.
+         */
+        await Promise.all([
+          cacheManager.remove(CACHE_KEYS.EXPENSES(ledgerId || "")),
+          cacheManager.remove(CACHE_KEYS.EXPENSE_LEDGERS),
+          cacheManager.remove(CACHE_KEYS.EXPENSE_STATS),
+        ]);
 
-        // Navigate back immediately
         showSuccessToast(
-          txnType === "credit" ? "Credit added!" : "Expense added!",
-          parseFloat(amount),
+          isEditing
+            ? "Expense updated!"
+            : txnType === "credit"
+              ? "Credit added!"
+              : "Expense added!",
+          parsed.value,
         );
         navigation.goBack();
-
-        // Call server in background
-        try {
-          const response = await addExpenseApi(expenseData);
-          dispatch(
-            updateExpense({ oldId: tempId, expense: response.data.expense }),
-          );
-          // Trigger parent screen refresh to update ledger totals
-          if (navigation.getParent()?.setParams) {
-            navigation.getParent().setParams({ refreshTimestamp: Date.now() });
-          }
-        } catch (error: any) {
-          console.error("Failed to add expense:", error);
-          Alert.alert(
-            "Error",
-            error.response?.data?.message || "Failed to add expense",
-          );
-        }
       } catch (error) {
+        // Stay on the form. The user keeps what they typed and can retry.
+        Alert.alert(
+          isEditing ? "Could not update" : "Could not save",
+          describeError(error),
+        );
+      } finally {
         setSaving(false);
-        Alert.alert("Error", "Failed to add expense");
       }
     };
 
     if (isEditing) {
-      setSaving(true);
-      try {
-        // Update existing expense
-        const oldExpense = expense;
-        const updatedExpense: IExpense = { ...oldExpense, ...expenseData };
+      await submit();
+      return;
+    }
 
-        // Optimistic update
-        dispatch(updateExpense({ expense: updatedExpense }));
+    // Add: check for a likely duplicate first.
+    setSaving(true);
+    try {
+      const res = await checkDuplicateExpenseApi(parsed.value, toApiDate(date));
+      setSaving(false);
 
-        // Navigate back immediately
-        navigation.goBack();
-
-        //  Call server in background
-        try {
-          const response = await editExpenseApi(expense._id, expenseData);
-          dispatch(updateExpense({ expense: response.data.expense }));
-          // Trigger parent screen refresh
-          if (navigation.getParent()?.setParams) {
-            navigation.getParent().setParams({ refreshTimestamp: Date.now() });
-          }
-        } catch (error: any) {
-          console.error("Failed to update expense:", error);
-          // Rollback
-          dispatch(updateExpense({ expense: oldExpense }));
-          Alert.alert(
-            "Error",
-            error.response?.data?.message || "Failed to update expense",
-          );
-        }
-      } catch (error) {
-        setSaving(false);
-        Alert.alert("Error", "An unexpected error occurred");
-      }
-    } else {
-      // Add New: Check for duplicates first
-      setSaving(true);
-      try {
-        const res = await checkDuplicateExpenseApi(
-          parseFloat(amount),
-          date.toISOString(),
+      if (res.data?.success && res.data.duplicates?.length > 0) {
+        const dup = res.data.duplicates[0];
+        Alert.alert(
+          "Possible duplicate",
+          `A similar entry already exists on ${formatDate(dup.date)}:\n` +
+            `${formatCurrency(dup.amount)}${dup.remarks ? ` — ${dup.remarks}` : ""}\n\n` +
+            `Add this one anyway?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Add anyway", onPress: () => void submit() },
+          ],
         );
-
-        if (res.data.success && res.data.duplicates.length > 0) {
-          setSaving(false);
-          const dup = res.data.duplicates[0];
-          const dateStr = new Date(dup.date).toLocaleDateString();
-          Alert.alert(
-            "Duplicate Warning",
-            `Found similar expense on ${dateStr}:\nAmount: ₹${dup.amount}\nRemarks: ${dup.remarks || "None"}\n\nAdd anyway?`,
-            [
-              { text: "Cancel", style: "cancel" },
-              { text: "Add", onPress: proceedWithAdd },
-            ],
-          );
-        } else {
-          proceedWithAdd();
-        }
-      } catch (error) {
-        // If check fails (e.g. offline), warn or proceed? Proceeding is safer UX.
-        proceedWithAdd();
+      } else {
+        await submit();
       }
+    } catch {
+      // The duplicate check is advisory. If it fails — offline, or the server
+      // is unhappy — saving the expense is still the user's intent.
+      setSaving(false);
+      await submit();
     }
   };
 
@@ -321,9 +319,14 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               value={date}
               mode="date"
               display={Platform.OS === "ios" ? "spinner" : "default"}
+              // Bounds that always include the value being edited, so the
+              // Android picker cannot clamp and silently rewrite the date.
+              minimumDate={pickerMinimumDate(isEditing ? expense.date : null)}
+              maximumDate={pickerMaximumDate(isEditing ? expense.date : null)}
               onChange={(event, selectedDate) => {
                 setShowDatePicker(Platform.OS === "ios");
-                if (selectedDate) setDate(selectedDate);
+                // Only a deliberate selection: Android also emits "dismissed".
+                if (event.type === "set" && selectedDate) setDate(selectedDate);
               }}
             />
           )}

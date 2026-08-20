@@ -16,52 +16,114 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
 import { SafeAreaWrapper } from "../../components/ui";
-import { addPoolTxApi } from "../../api/poolApi";
+import {
+  addPoolTxApi,
+  editPoolTxApi,
+  deletePoolTxApi,
+} from "../../api/poolApi";
+import { describeError } from "../../api/axios";
+import { parseAmount } from "../../utils/money";
+import {
+  toApiDate,
+  fromApiDate,
+  pickerMinimumDate,
+  pickerMaximumDate,
+} from "../../utils/dates";
 
 const AddEditPoolTxScreen = ({ route, navigation }: any) => {
-  const { poolId, mode = "add" } = route.params; // mode: "add" | "edit"
+  /**
+   * `mode: "edit"` was a façade.
+   *
+   * The screen rendered the header as "Edit Transaction", accepted a `mode`
+   * param — and then unconditionally called `addPoolTxApi`. There was no
+   * prefill and no call to `editPoolTxApi`, which (along with
+   * `deletePoolTxApi`) had ZERO call sites anywhere in the app.
+   *
+   * So pool transactions could not be edited or deleted at all, despite the
+   * backend supporting both, and any path reaching this screen in edit mode
+   * created a DUPLICATE — doubling the amount in the pool ledger.
+   */
+  const { poolId, mode = "add", txn } = route.params;
+  const isEditing = mode === "edit" && !!txn;
+
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
   const { showSuccessToast } = useToast();
 
-  const [amount, setAmount] = useState("");
-  const [type, setType] = useState<"credit" | "debit">("credit");
-  const [date, setDate] = useState(new Date());
+  const [amount, setAmount] = useState(isEditing ? String(txn.amount) : "");
+  const [type, setType] = useState<"credit" | "debit">(
+    isEditing ? txn.type : "credit",
+  );
+  const [date, setDate] = useState(
+    isEditing ? fromApiDate(txn.date) : new Date(),
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [remarks, setRemarks] = useState("");
+  const [remarks, setRemarks] = useState(isEditing ? (txn.remarks ?? "") : "");
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async () => {
-    if (!amount || parseFloat(amount) <= 0) {
-      Alert.alert("Error", "Please enter a valid amount");
-      return;
-    }
-
-    if (parseFloat(amount) >= 10000000) {
-      Alert.alert("Amount Too Large", "Amount must be less than ₹1 Crore");
+    const parsed = parseAmount(amount);
+    if (!parsed.ok) {
+      Alert.alert("Invalid Amount", parsed.message);
       return;
     }
 
     try {
       setLoading(true);
-      await addPoolTxApi({
-        poolId,
-        amount: parseFloat(amount),
+      const payload = {
+        amount: parsed.value,
         type,
-        date: date.toISOString(),
+        date: toApiDate(date),
         remarks: remarks.trim() || undefined,
-      });
+      };
 
-      showSuccessToast("Transaction added!", parseFloat(amount));
+      if (isEditing) {
+        await editPoolTxApi(txn._id, payload);
+      } else {
+        await addPoolTxApi({ poolId, ...payload });
+      }
+
+      showSuccessToast(
+        isEditing ? "Transaction updated!" : "Transaction added!",
+        parsed.value,
+      );
       navigation.goBack();
-    } catch (error: any) {
+    } catch (error) {
+      // Stay on the form so the user's input survives a failure.
       Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to add transaction",
+        isEditing ? "Could not update" : "Could not add",
+        describeError(error),
       );
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDelete = () => {
+    if (!isEditing) return;
+    Alert.alert(
+      "Delete transaction?",
+      "This removes the entry from the pool ledger and cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setLoading(true);
+              await deletePoolTxApi(txn._id);
+              showSuccessToast("Transaction deleted");
+              navigation.goBack();
+            } catch (error) {
+              Alert.alert("Could not delete", describeError(error));
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   return (
@@ -237,9 +299,12 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
                 value={date}
                 mode="date"
                 display="default"
+                minimumDate={pickerMinimumDate(isEditing ? txn.date : null)}
+                maximumDate={pickerMaximumDate(isEditing ? txn.date : null)}
                 onChange={(event, selectedDate) => {
                   setShowDatePicker(false);
-                  if (selectedDate) {
+                  // Only a deliberate selection; Android also emits "dismissed".
+                  if (event.type === "set" && selectedDate) {
                     setDate(selectedDate);
                   }
                 }}

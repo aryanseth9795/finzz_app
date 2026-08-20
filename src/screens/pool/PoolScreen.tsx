@@ -1,4 +1,5 @@
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useCallback, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -16,6 +17,7 @@ import { useAppDispatch, useAppSelector } from "../../store";
 import { setPools, setPoolLoading } from "../../store/slices/poolSlice";
 import { getMyPoolsApi } from "../../api/poolApi";
 import { IPool } from "../../types";
+import { logger } from "../../utils/logger";
 
 const PoolScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
@@ -33,15 +35,29 @@ const PoolScreen = ({ navigation }: any) => {
         dispatch(setPools(res.data.pools));
       }
     } catch (error) {
-      console.error("Failed to fetch pools:", error);
+      logger.error("Failed to fetch pools:", error);
     } finally {
       dispatch(setPoolLoading(false));
     }
   }, [dispatch]);
 
-  useEffect(() => {
-    fetchPools();
-  }, [fetchPools]);
+  /**
+   * Refetch on focus, not only on mount.
+   *
+   * PoolScreen is the root of a native stack, so it stays MOUNTED while
+   * screens are pushed above it. With only a mount effect, CreatePoolScreen
+   * showed "Pool created successfully!" and returned to a list that did not
+   * contain the new pool; a deleted pool stayed listed and opening it 404'd.
+   * The only recovery was pull-to-refresh or an app restart.
+   *
+   * HomeScreen, ExpenseScreen and PoolChatScreen all had a focus listener —
+   * this screen was the one that did not.
+   */
+  useFocusEffect(
+    useCallback(() => {
+      void fetchPools();
+    }, [fetchPools]),
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
