@@ -26,6 +26,8 @@ import {
 } from "../../api/poolApi";
 import { IPool, IFriend } from "../../types";
 import { getFriendsListApi } from "../../api/friendApi";
+import { logger } from "../../utils/logger";
+import { describeError } from "../../api/axios";
 
 const PoolSettingsScreen = ({ route, navigation }: any) => {
   const { poolId } = route.params;
@@ -36,6 +38,7 @@ const PoolSettingsScreen = ({ route, navigation }: any) => {
   const [friends, setFriends] = useState<IFriend[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const userId = useAppSelector((state) => state.auth.user?._id);
 
   useEffect(() => {
@@ -48,9 +51,13 @@ const PoolSettingsScreen = ({ route, navigation }: any) => {
       const res = await getPoolByIdApi(poolId);
       if (res.data.success) {
         setPool(res.data.pool);
+        setLoadError(null);
       }
     } catch (error) {
-      console.error("Failed to fetch pool:", error);
+      // Was `logger.error(...)` alone, leaving `pool` null — which hit the
+      // early return below and rendered a bare spinner for ever.
+      logger.error("Failed to fetch pool", error);
+      setLoadError(describeError(error));
     }
   };
 
@@ -61,7 +68,7 @@ const PoolSettingsScreen = ({ route, navigation }: any) => {
         setFriends(res.data.friends);
       }
     } catch (error) {
-      console.error("Failed to fetch friends:", error);
+      logger.error("Failed to fetch friends:", error);
     }
   };
 
@@ -189,11 +196,73 @@ const PoolSettingsScreen = ({ route, navigation }: any) => {
     ]);
   };
 
+  /**
+   * Loading, error and empty are three distinct states.
+   *
+   * This early return previously rendered ONLY a spinner — no header, no back
+   * chevron, no retry, no message. Any network failure stranded the user on an
+   * infinite spinner whose only escape was the iOS edge-swipe or the Android
+   * hardware back button. `EditPoolScreen`, one file away, handled the same
+   * failure correctly.
+   */
   if (!pool) {
     return (
       <SafeAreaWrapper edges={["top"]}>
+        <View style={[styles.header, { borderBottomColor: colors.separator }]}>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>
+            Pool Settings
+          </Text>
+          <View style={{ width: 40 }} />
+        </View>
+
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          {loadError ? (
+            <>
+              <Ionicons
+                name="cloud-offline-outline"
+                size={44}
+                color={colors.textTertiary}
+              />
+              <Text
+                style={{
+                  color: colors.textSecondary,
+                  textAlign: "center",
+                  marginTop: 12,
+                  marginHorizontal: 32,
+                }}
+              >
+                {loadError}
+              </Text>
+              <TouchableOpacity
+                onPress={fetchPool}
+                style={{
+                  marginTop: 20,
+                  paddingHorizontal: 24,
+                  paddingVertical: 10,
+                  borderRadius: 12,
+                  backgroundColor: colors.primary,
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading pool settings"
+              >
+                <Text style={{ color: "#fff", fontWeight: "700" }}>Retry</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <ActivityIndicator
+              size="large"
+              color={colors.primary}
+              accessibilityLabel="Loading pool settings"
+            />
+          )}
         </View>
       </SafeAreaWrapper>
     );

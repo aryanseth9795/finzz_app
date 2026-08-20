@@ -58,17 +58,27 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const theme = React.useMemo(() => createTheme(mode), [mode]);
 
+  /**
+   * Memoised context value.
+   *
+   * `theme` itself was already memoised, but the provider's `value` was an
+   * inline object literal — so it got a fresh identity on every render and
+   * React, which compares context by reference, notified every consumer.
+   * `useTheme()` is used by essentially every component in the app, so one
+   * ThemeProvider render re-rendered the entire tree.
+   */
+  const value = React.useMemo(
+    () => ({
+      theme,
+      toggleTheme,
+      setThemeMode,
+      isDark: mode === "dark",
+    }),
+    [theme, toggleTheme, setThemeMode, mode],
+  );
+
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        toggleTheme,
-        setThemeMode,
-        isDark: mode === "dark",
-      }}
-    >
-      {children}
-    </ThemeContext.Provider>
+    <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
   );
 };
 

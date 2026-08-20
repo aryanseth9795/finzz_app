@@ -16,6 +16,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import { getPoolByIdApi, updatePoolApi } from "../../api/poolApi";
 import { IPool } from "../../types";
+import { logger } from "../../utils/logger";
 
 const EditPoolScreen = ({ route, navigation }: any) => {
   const { poolId } = route.params;
@@ -43,7 +44,7 @@ const EditPoolScreen = ({ route, navigation }: any) => {
         setRules(pool.rules || "");
       }
     } catch (error) {
-      console.error("Failed to fetch pool:", error);
+      logger.error("Failed to fetch pool:", error);
       Alert.alert("Error", "Failed to load pool details");
       navigation.goBack();
     } finally {
