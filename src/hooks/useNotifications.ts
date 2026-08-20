@@ -1,22 +1,45 @@
 import { useEffect, useRef } from "react";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
-import { Platform, Alert, Linking } from "react-native";
+import Constants from "expo-constants";
+import { Platform } from "react-native";
 import { updatePushTokenApi } from "../api/authApi";
 import { useAppSelector } from "../store";
+import { routeNotification } from "../navigation/navigationRef";
 
-// Configure how notifications are handled when app is in foreground
+/**
+ * Foreground presentation.
+ *
+ * SDK 54 replaced `shouldShowAlert` with `shouldShowBanner`/`shouldShowList`.
+ * The previous object still used the old key and was cast with
+ * `as Notifications.NotificationBehavior` — silencing the compiler error that
+ * would have flagged it, so foreground notifications may simply not have
+ * displayed.
+ */
 Notifications.setNotificationHandler({
-  handleNotification: async () =>
-    ({
-      shouldShowAlert: true,
-      shouldPlaySound: true,
-      shouldSetBadge: true,
-    }) as Notifications.NotificationBehavior,
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
 });
 
+/** Expo project id, needed for token issuance in EAS builds. */
+const projectId =
+  Constants.expoConfig?.extra?.eas?.projectId ??
+  (Constants as unknown as { easConfig?: { projectId?: string } }).easConfig
+    ?.projectId;
+
 export function useNotifications() {
-  const { user } = useAppSelector((state) => state.auth);
+  // Depend on the ID, not the object.
+  //
+  // The effect previously depended on `[user]` — the whole Redux object — so
+  // every `setCredentials`, `updateUser` and `updateAvatar` changed its
+  // identity and re-ran the entire registration: a permission check, a token
+  // fetch and a POST, plus re-subscribing both listeners.
+  const userId = useAppSelector((state) => state.auth.user?._id);
+
   const notificationListener = useRef<Notifications.Subscription | undefined>(
     undefined,
   );
@@ -25,107 +48,115 @@ export function useNotifications() {
   );
 
   useEffect(() => {
-    // Only register if user is authenticated
-    if (!user) return;
+    if (!userId) return;
 
-    registerForPushNotificationsAsync();
+    void registerForPushNotificationsAsync();
 
-    // Listener for notifications received while app is in foreground
     notificationListener.current =
-      Notifications.addNotificationReceivedListener((notification) => {
-        console.log("Notification received:", notification);
-        // You can add custom handling here (e.g., play sound, show badge)
+      Notifications.addNotificationReceivedListener(() => {
+        // Presentation is handled by the notification handler above; nothing
+        // to do here beyond keeping the subscription alive.
       });
 
-    // Listener for when user taps on a notification
     responseListener.current =
       Notifications.addNotificationResponseReceivedListener((response) => {
-        console.log("Notification tapped:", response);
-        const data = response.notification.request.content.data;
-
-        // Handle navigation based on notification type
-        handleNotificationTap(data);
+        // Was a stub that logged and returned, so tapping a notification did
+        // nothing. Routing now happens via the navigation ref.
+        routeNotification(
+          response.notification.request.content.data as Record<string, unknown>,
+        );
       });
 
     return () => {
-      if (notificationListener.current) {
-        notificationListener.current.remove();
-      }
-      if (responseListener.current) {
-        responseListener.current.remove();
-      }
+      notificationListener.current?.remove();
+      responseListener.current?.remove();
     };
-  }, [user]);
+  }, [userId]);
+
+  /**
+   * Handle a notification that launched the app from a cold start.
+   *
+   * `addNotificationResponseReceivedListener` does not fire for the tap that
+   * started the process, so without this the deep link is lost precisely when
+   * the user most clearly expressed intent.
+   */
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+
+    Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        if (cancelled || !response) return;
+        routeNotification(
+          response.notification.request.content.data as Record<string, unknown>,
+        );
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
 }
 
-async function registerForPushNotificationsAsync() {
+async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
-    // Check if running on physical device
-    if (!Device.isDevice) {
-      console.log("Push notifications only work on physical devices");
-      return null;
+    if (!Device.isDevice) return null;
+
+    // Create the Android channel BEFORE requesting a token, so the first
+    // notification already has an importance level to be delivered under.
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync("default", {
+        name: "Default",
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: "#007AFF",
+      });
     }
 
-    // Check existing permissions
-    const { status: existingStatus } =
-      await Notifications.getPermissionsAsync();
-
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
 
-    // If not granted, request permission directly
-    if (existingStatus !== "granted") {
+    if (existingStatus === "undetermined") {
       const { status } = await Notifications.requestPermissionsAsync();
       finalStatus = status;
     }
 
-    if (finalStatus !== "granted") {
-      Alert.alert(
-        "Permission Required",
-        "Push notifications are disabled. Please enable them in settings to receive updates.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Open Settings", onPress: () => Linking.openSettings() },
-        ],
-      );
-      return null;
-    }
+    /**
+     * Silent when denied.
+     *
+     * The previous version showed an Alert with an "Open Settings" button
+     * every time the app launched with notifications disabled — nagging the
+     * user for a choice they had already made. Permission is now requested
+     * once (only when `undetermined`); prompting to re-enable belongs on the
+     * notifications screen, where the user went looking for it.
+     */
+    if (finalStatus !== "granted") return null;
 
-    // Get Expo push token (no projectId needed for development/EAS)
-    const tokenData = await Notifications.getExpoPushTokenAsync();
+    const tokenData = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined,
+    );
     const token = tokenData.data;
 
-    console.log("Expo Push Token:", token);
-
-    // Upload token to backend
     await updatePushTokenApi(token);
-    console.log("Push token uploaded to backend");
-
-    // Android-specific channel setup
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("default", {
-        name: "default",
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: "#FF231F7C",
-      });
-    }
-
     return token;
-  } catch (error) {
-    console.error("Error registering for push notifications:", error);
+  } catch {
+    // Push registration failing must never break app startup.
     return null;
   }
 }
 
-function handleNotificationTap(data: any) {
-  // Handle navigation based on notification type
-  // You'll need to implement navigation logic here based on your app structure
-  console.log("Handle notification tap with data:", data);
-
-  // Example navigation logic (you'll need to adapt this to your navigation setup):
-  // if (data?.type === 'txn_added' || data?.type === 'txn_verified') {
-  //   navigationRef.navigate('ChatScreen', { chatId: data.chatId });
-  // } else if (data?.type === 'friend_request' || data?.type === 'friend_accepted') {
-  //   navigationRef.navigate('AddFriend');
-  // }
+/** The device's current Expo push token, for de-registration on sign-out. */
+export async function getCurrentPushToken(): Promise<string | null> {
+  try {
+    if (!Device.isDevice) return null;
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== "granted") return null;
+    const tokenData = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined,
+    );
+    return tokenData.data;
+  } catch {
+    return null;
+  }
 }

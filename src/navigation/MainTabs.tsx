@@ -1,3 +1,4 @@
+import { StyleSheet } from "react-native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -88,6 +89,17 @@ const ExpenseStackNavigator = () => {
       />
       <ExpenseStack.Screen name="ExpenseStats" component={ExpenseStatsScreen} />
       <ExpenseStack.Screen name="AccountHome" component={AccountScreen} />
+      {/*
+        Registered here as well as in ChatsStack.
+
+        AccountScreen's "Reports" menu item called navigate("Report", {}), but
+        `Report` existed only in ChatsStack. React Navigation resolves a name
+        against the current navigator and then walks UP the hierarchy — it does
+        not descend into sibling stacks — so the action was unhandled: a
+        console error in development and silently nothing in production.
+        Tapping "Reports" in Account did not work at all.
+      */}
+      <ExpenseStack.Screen name="Report" component={ReportScreen} />
       <ExpenseStack.Screen
         name="Notifications"
         component={NotificationsScreen}
@@ -137,13 +149,15 @@ const MainTabs = () => {
         },
         tabBarActiveTintColor: colors.tabActive,
         tabBarInactiveTintColor: colors.tabInactive,
+        // Height was hardcoded to 95, ignoring the safe-area inset — oversized
+        // on devices with no bottom inset and misaligned on Android gesture
+        // navigation. Letting the navigator apply the inset itself keeps the
+        // bar correct on every device.
         tabBarStyle: {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.tabBarBorder,
-          borderTopWidth: 2,
-          paddingTop: 1,
-          paddingBottom: 1,
-          height: 95,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          paddingTop: 6,
         },
         tabBarLabelStyle: {
           fontSize: 11,
