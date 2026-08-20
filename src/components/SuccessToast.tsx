@@ -1,13 +1,22 @@
-import React, { useEffect, useRef } from "react";
-import { View, Text, StyleSheet, Animated } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  Pressable,
+  AccessibilityInfo,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
+import { formatCurrency } from "../utils/money";
 
 interface SuccessToastProps {
   visible: boolean;
   message: string;
   amount?: number;
   type?: "success" | "error";
+  onDismiss?: () => void;
 }
 
 const SuccessToast: React.FC<SuccessToastProps> = ({
@@ -15,15 +24,29 @@ const SuccessToast: React.FC<SuccessToastProps> = ({
   message,
   amount,
   type = "success",
+  onDismiss,
 }) => {
   const { theme } = useTheme();
   const { colors } = theme;
   const slideAnim = useRef(new Animated.Value(-100)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
+  /**
+   * `mounted` decouples "should be shown" from "is still on screen".
+   *
+   * The component previously ran `if (!visible) return null` immediately after
+   * starting the exit animation, so the view was unmounted on the same render
+   * and the animation never played — the entire `else` branch was dead code.
+   * The toast simply vanished.
+   *
+   * Keeping it mounted until the exit animation calls back is what lets the
+   * dismissal actually animate.
+   */
+  const [mounted, setMounted] = useState(visible);
+
   useEffect(() => {
     if (visible) {
-      // Slide down and fade in
+      setMounted(true);
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -33,36 +56,42 @@ const SuccessToast: React.FC<SuccessToastProps> = ({
         }),
         Animated.timing(opacityAnim, {
           toValue: 1,
-          duration: 300,
+          duration: 250,
           useNativeDriver: true,
         }),
       ]).start();
-    } else {
-      // Slide up and fade out
+
+      // Screen readers do not announce a view appearing. Without this the
+      // confirmation that a transaction saved is invisible to VoiceOver and
+      // TalkBack users.
+      AccessibilityInfo.announceForAccessibility?.(message);
+    } else if (mounted) {
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: -100,
-          duration: 250,
+          duration: 220,
           useNativeDriver: true,
         }),
         Animated.timing(opacityAnim, {
           toValue: 0,
-          duration: 250,
+          duration: 220,
           useNativeDriver: true,
         }),
-      ]).start();
+      ]).start(({ finished }) => {
+        if (finished) setMounted(false);
+      });
     }
-  }, [visible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, message]);
 
-  if (!visible) {
-    return null;
-  }
+  if (!mounted) return null;
 
   const backgroundColor = type === "success" ? colors.success : colors.danger;
   const icon = type === "success" ? "checkmark-circle" : "close-circle";
 
   return (
     <Animated.View
+      pointerEvents="box-none"
       style={[
         styles.container,
         {
@@ -71,16 +100,23 @@ const SuccessToast: React.FC<SuccessToastProps> = ({
           opacity: opacityAnim,
         },
       ]}
+      accessibilityLiveRegion="polite"
+      accessibilityRole="alert"
     >
-      <View style={styles.content}>
+      <Pressable
+        onPress={onDismiss}
+        style={styles.content}
+        accessibilityRole="button"
+        accessibilityLabel={`${message}${amount !== undefined ? `, ${formatCurrency(amount)}` : ""}. Tap to dismiss.`}
+      >
         <Ionicons name={icon} size={24} color="#fff" />
         <View style={styles.textContainer}>
           <Text style={styles.message}>{message}</Text>
           {amount !== undefined && (
-            <Text style={styles.amount}>₹{amount.toFixed(2)}</Text>
+            <Text style={styles.amount}>{formatCurrency(amount)}</Text>
           )}
         </View>
-      </View>
+      </Pressable>
     </Animated.View>
   );
 };

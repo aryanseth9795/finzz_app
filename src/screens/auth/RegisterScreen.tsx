@@ -14,6 +14,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Button } from "../../components/ui";
 import { registerApi, sendOtpApi, verifyOtpApi } from "../../api/authApi";
+import { describeError } from "../../api/axios";
+import { validatePhone } from "../../utils/phone";
+import { useCooldown } from "../../hooks/useCooldown";
 import { tokenManager } from "../../utils/tokenManager";
 import { useAppDispatch } from "../../store";
 import { setCredentials, setLoading } from "../../store/slices/authSlice";
@@ -40,29 +43,31 @@ const RegisterScreen = ({ navigation }: any) => {
   const [step, setStep] = useState<Step>("form");
   const [errors, setErrors] = useState<Record<string, string | undefined>>({});
   const [loading, setLoadingState] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
 
-  // ── Cooldown timer ──────────────────────────────────────
-  const startCooldown = () => {
-    setResendCooldown(60);
-    const interval = setInterval(() => {
-      setResendCooldown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
+  /**
+   * Shared cooldown hook.
+   *
+   * Replaces a copy-pasted `startCooldown` whose `setInterval` handle was a
+   * local const — never stored, never cleared on unmount — so navigating away
+   * mid-cooldown left a 1 Hz timer running against an unmounted component.
+   */
+  const {
+    remaining: resendCooldown,
+    isCoolingDown,
+    start: startCooldown,
+  } = useCooldown(60);
+
+  /** The normalised phone, computed once and reused for the API call. */
+  const phoneCheck = validatePhone(phone);
 
   // ── Step 1 validation ───────────────────────────────────
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
     if (!name.trim()) newErrors.name = "Name is required";
-    if (!phone.trim()) newErrors.phone = "Phone number is required";
-    else if (phone.trim().length < 10)
-      newErrors.phone = "Enter a valid phone number";
+    // Normalises rather than merely counting characters, so a number typed
+    // with spaces or a country code is accepted and stored canonically —
+    // otherwise the account could never be found by friend search.
+    if (!phoneCheck.ok) newErrors.phone = phoneCheck.message;
     if (!email.trim()) newErrors.email = "Email is required";
     else if (!/\S+@\S+\.\S+/.test(email.trim()))
       newErrors.email = "Enter a valid email address";
@@ -99,25 +104,43 @@ const RegisterScreen = ({ navigation }: any) => {
 
   // ── Resend OTP ──────────────────────────────────────────
   const handleResend = async () => {
-    if (resendCooldown > 0) return;
+    if (isCoolingDown) return;
     try {
       await sendOtpApi(email.trim());
       startCooldown();
       Alert.alert("OTP Sent", "A new OTP has been sent to your email.");
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to resend OTP",
-      );
+    } catch (error) {
+      Alert.alert("Error", describeError(error));
     }
   };
 
   // ── OTP input handlers ──────────────────────────────────
+  /**
+   * Handles typing AND pasting.
+   *
+   * The previous version wrote `text` straight into one slot with no digit
+   * filter and no paste handling, so pasting a 6-digit code from the email
+   * filled a single box and the user had to retype it by hand.
+   */
   const handleOtpChange = (text: string, index: number) => {
+    const digits = text.replace(/\D/g, "");
+
+    if (digits.length > 1) {
+      // Paste: distribute across the boxes from this position.
+      const next = [...otp];
+      for (let i = 0; i < digits.length && index + i < 6; i++) {
+        next[index + i] = digits[i];
+      }
+      setOtp(next);
+      const lastFilled = Math.min(index + digits.length, 6) - 1;
+      otpRefs.current[lastFilled]?.focus();
+      return;
+    }
+
     const newOtp = [...otp];
-    newOtp[index] = text;
+    newOtp[index] = digits;
     setOtp(newOtp);
-    if (text && index < 5) {
+    if (digits && index < 5) {
       otpRefs.current[index + 1]?.focus();
     }
   };
@@ -136,27 +159,34 @@ const RegisterScreen = ({ navigation }: any) => {
       return;
     }
 
+    if (!phoneCheck.ok) {
+      Alert.alert("Invalid phone number", phoneCheck.message);
+      setStep("form");
+      return;
+    }
+
     setLoadingState(true);
     dispatch(setLoading(true));
     try {
-      // Verify OTP first
+      // Verify the OTP, then register.
+      //
+      // These remain two calls, but the server no longer creates a sentinel
+      // User row when an OTP is sent, so a failed registration leaves nothing
+      // behind: previously it stranded a verified placeholder account holding
+      // the user's email, which they could neither use nor recover.
       await verifyOtpApi(email.trim(), otpValue);
 
-      // Then register
       const response = await registerApi(
         name.trim(),
-        phone.trim(),
+        phoneCheck.value,
         email.trim(),
         password,
       );
       const { access_token, refresh_token, user } = response.data;
       await tokenManager.saveAuthData(access_token, refresh_token, user);
       dispatch(setCredentials(user));
-    } catch (error: any) {
-      const message =
-        error?.response?.data?.message ||
-        "Registration failed. Please try again.";
-      Alert.alert("Registration Failed", message);
+    } catch (error) {
+      Alert.alert("Registration Failed", describeError(error));
     } finally {
       setLoadingState(false);
       dispatch(setLoading(false));

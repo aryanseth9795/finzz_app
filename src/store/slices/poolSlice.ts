@@ -55,7 +55,14 @@ const poolSlice = createSlice({
         hasMore: boolean;
       }>,
     ) => {
-      state.transactions = [...state.transactions, ...action.payload.poolTxns];
+      // Deduplicate by `_id` — see chatSlice.appendTransactions. Duplicates
+      // here were doubly harmful because the pool header summed the loaded
+      // list to produce a balance.
+      const existingIds = new Set(state.transactions.map((t) => t._id));
+      const unique = action.payload.poolTxns.filter(
+        (t) => !existingIds.has(t._id),
+      );
+      state.transactions = [...state.transactions, ...unique];
       state.nextCursor = action.payload.nextCursor;
       state.hasMore = action.payload.hasMore;
       state.txLoading = false;

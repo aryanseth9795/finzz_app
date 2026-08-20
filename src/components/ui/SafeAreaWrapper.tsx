@@ -42,4 +42,7 @@ const styles = StyleSheet.create({
   },
 });
 
-export default React.memo(SafeAreaWrapper);
+// NOT memoised: this component takes `children`, which is a new element on
+// every parent render, so `React.memo` could never produce a cache hit — it
+// only added a props comparison to every render.
+export default SafeAreaWrapper;

@@ -23,6 +23,7 @@ import {
 } from "../../api/authApi";
 import { tokenManager } from "../../utils/tokenManager";
 import { cacheManager } from "../../utils/cacheManager";
+import { getCurrentPushToken } from "../../hooks/useNotifications";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
   updateAvatar,
@@ -43,6 +44,7 @@ const AccountScreen = ({ navigation }: any) => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showOld, setShowOld] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [changingPwd, setChangingPwd] = useState(false);
 
   const handleAvatarUpload = async () => {
@@ -79,13 +81,35 @@ const AccountScreen = ({ navigation }: any) => {
         text: "Logout",
         style: "destructive",
         onPress: async () => {
+          /**
+           * Tell the server first, then clear locally.
+           *
+           * The server needs two things this device holds: the refresh token,
+           * so it revokes only THIS device's grant rather than every session;
+           * and the push token, so notifications for this account stop being
+           * delivered here. Without the second, the device kept receiving the
+           * previous user's transaction notifications — including counterparty
+           * names and amounts — after somebody else signed in.
+           *
+           * The local teardown runs regardless: if the network call fails the
+           * user must still end up signed out on this device, and the server
+           * grant expires on its own.
+           */
+          const [refreshToken, pushToken] = await Promise.all([
+            tokenManager.getRefreshToken(),
+            getCurrentPushToken(),
+          ]);
+
           try {
-            await logoutApi();
+            await logoutApi({ refreshToken, pushToken });
           } catch {
-            // Logout even if API fails
+            // Best effort — proceed with the local sign-out either way.
           }
+
           await tokenManager.clearAll();
           await cacheManager.clearAll();
+          // The root reducer resets every slice on this action, so the next
+          // account cannot see the previous user's chats, balances or ledger.
           dispatch(logoutAction());
         },
       },
@@ -162,6 +186,7 @@ const AccountScreen = ({ navigation }: any) => {
     placeholder: string,
     show: boolean,
     setShow: (v: boolean) => void,
+    label: string,
   ) => (
     <View
       style={[
@@ -184,9 +209,22 @@ const AccountScreen = ({ navigation }: any) => {
         placeholder={placeholder}
         placeholderTextColor={colors.textTertiary}
         secureTextEntry={!show}
+        // Without autoCapitalize the first character of a typed password is
+        // capitalised on both platforms; without autoComplete/textContentType
+        // a password manager can neither fill nor save the credential.
+        autoCapitalize="none"
+        autoCorrect={false}
+        autoComplete={label === "Current password" ? "current-password" : "new-password"}
+        textContentType={label === "Current password" ? "password" : "newPassword"}
+        accessibilityLabel={label}
         style={[styles.pwdTextInput, { color: colors.text }]}
       />
-      <TouchableOpacity onPress={() => setShow(!show)}>
+      <TouchableOpacity
+        onPress={() => setShow(!show)}
+        accessibilityRole="button"
+        accessibilityLabel={show ? `Hide ${label}` : `Show ${label}`}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      >
         <Ionicons
           name={show ? "eye-off-outline" : "eye-outline"}
           size={18}
@@ -479,6 +517,7 @@ const AccountScreen = ({ navigation }: any) => {
               "Enter current password",
               showOld,
               setShowOld,
+              "Current password",
             )}
 
             <Text style={[styles.pwdLabel, { color: colors.textSecondary }]}>
@@ -490,6 +529,7 @@ const AccountScreen = ({ navigation }: any) => {
               "Min 6 characters",
               showNew,
               setShowNew,
+              "New password",
             )}
 
             <Text style={[styles.pwdLabel, { color: colors.textSecondary }]}>
@@ -499,8 +539,11 @@ const AccountScreen = ({ navigation }: any) => {
               confirmPassword,
               setConfirmPassword,
               "Confirm new password",
-              false,
-              () => {},
+              // Was hardcoded `false` with a no-op setter, so this field
+              // rendered a working-looking eye toggle wired to nothing.
+              showConfirm,
+              setShowConfirm,
+              "Confirm new password",
             )}
 
             <Button

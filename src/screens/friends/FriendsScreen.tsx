@@ -31,7 +31,9 @@ import {
 import { setChats } from "../../store/slices/chatSlice";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { getUserChatsApi } from "../../api/chatApi";
+import { describeError } from "../../api/axios";
 import { IFriendRequest } from "../../types";
+import { logger } from "../../utils/logger";
 
 const FriendsScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
@@ -55,7 +57,7 @@ const FriendsScreen = ({ navigation }: any) => {
       dispatch(setIncomingRequests(data.incoming || []));
       dispatch(setSentRequests(data.sent || []));
     } catch (error) {
-      console.error("Failed to fetch requests:", error);
+      logger.error("Failed to fetch requests:", error);
     } finally {
       setLoading(false);
     }
@@ -99,22 +101,41 @@ const FriendsScreen = ({ navigation }: any) => {
   };
 
   const handleAccept = async (requestId: string) => {
+    /**
+     * Two operations, two error scopes.
+     *
+     * These previously shared one `try`, so a failure of the FOLLOW-UP chat
+     * refetch was reported as "Failed to accept". The user then retried an
+     * already-accepted request — and because the server's accept handler
+     * created a chat unconditionally, the retry produced a DUPLICATE chat for
+     * the same pair, splitting their transaction history in two.
+     *
+     * The server is now idempotent, but the message was wrong regardless: it
+     * told the user the opposite of what had happened.
+     */
     try {
       await acceptFriendRequestApi(requestId);
       dispatch(removeIncomingRequest(requestId));
-      await cacheManager.remove(CACHE_KEYS.FRIENDS);
-      await cacheManager.remove(CACHE_KEYS.CHATS);
+    } catch (error) {
+      Alert.alert("Could not accept", describeError(error));
+      return;
+    }
 
-      // Immediately refresh chats in Redux so HomeScreen shows the new chat
+    // Accepted. Anything below is a refresh, and its failure must not be
+    // reported as a failure to accept.
+    try {
+      await Promise.all([
+        cacheManager.remove(CACHE_KEYS.FRIENDS),
+        cacheManager.remove(CACHE_KEYS.CHATS),
+      ]);
       const response = await getUserChatsApi();
       const freshChats = response.data.chats || response.data;
-      dispatch(setChats(freshChats));
-      await cacheManager.set(CACHE_KEYS.CHATS, freshChats);
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to accept",
-      );
+      if (Array.isArray(freshChats)) {
+        dispatch(setChats(freshChats));
+        await cacheManager.set(CACHE_KEYS.CHATS, freshChats);
+      }
+    } catch {
+      // The friendship exists; the chat list will catch up on next focus.
     }
   };
 
@@ -139,6 +160,10 @@ const FriendsScreen = ({ navigation }: any) => {
   const renderRequestCard = ({ item }: { item: IFriendRequest }) => {
     const isIncoming = activeTab === "incoming";
     const person = isIncoming ? item.from : item.to;
+
+    // A request whose sender or recipient was deleted resolves to null via
+    // populate. Dereferencing `person.avatar` threw and took down the screen.
+    if (!person) return null;
 
     return (
       <View

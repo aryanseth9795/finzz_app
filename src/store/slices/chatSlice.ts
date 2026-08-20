@@ -55,7 +55,20 @@ const chatSlice = createSlice({
         hasMore: boolean;
       }>,
     ) => {
-      state.transactions = [...state.transactions, ...action.payload.txns];
+      /**
+       * Deduplicate by `_id`.
+       *
+       * `onEndReached` guards read a loading flag set by an asynchronous
+       * dispatch, so a fast scroll can fire the handler twice with the same
+       * cursor. Without this filter the same page was appended twice —
+       * duplicate rows in a ledger, which then inflated any total derived
+       * from the loaded list.
+       *
+       * `expenseSlice.appendExpenses` already did this; chat and pool did not.
+       */
+      const existingIds = new Set(state.transactions.map((t) => t._id));
+      const unique = action.payload.txns.filter((t) => !existingIds.has(t._id));
+      state.transactions = [...state.transactions, ...unique];
       state.nextCursor = action.payload.nextCursor;
       state.hasMore = action.payload.hasMore;
       state.txLoading = false;

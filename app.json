@@ -19,10 +19,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.aryanseth9795.finzz",
-      "infoPlist": {
-        "NSContactsUsageDescription": "Finzz needs access to your contacts to find friends who are already using the app."
-      }
+      "bundleIdentifier": "com.aryanseth9795.finzz"
     },
     "android": {
       "adaptiveIcon": {
@@ -31,25 +28,17 @@
       },
       "package": "com.aryanseth9795.finzz",
       "edgeToEdgeEnabled": true,
-      "permissions": [
-        "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS",
-        "android.permission.RECORD_AUDIO"
-      ],
+      "permissions": [],
       "versionCode": 1,
       "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       [
-        "expo-contacts",
-        {
-          "contactsPermission": "Allow Finzz to access your contacts to find friends."
-        }
-      ],
-      [
         "expo-image-picker",
         {
-          "photosPermission": "Allow Finzz to access your photos to set a profile picture."
+          "photosPermission": "Allow Finzz to access your photos to set a profile picture.",
+          "cameraPermission": false,
+          "microphonePermission": false
         }
       ],
       [

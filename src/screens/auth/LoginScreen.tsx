@@ -14,6 +14,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Input, Button } from "../../components/ui";
 import { loginApi } from "../../api/authApi";
+import { describeError } from "../../api/axios";
+import { validatePhone } from "../../utils/phone";
 import { tokenManager } from "../../utils/tokenManager";
 import { useAppDispatch } from "../../store";
 import { setCredentials, setLoading } from "../../store/slices/authSlice";
@@ -31,33 +33,38 @@ const LoginScreen = ({ navigation }: any) => {
   const [loading, setLoadingState] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const validate = (): boolean => {
-    const newErrors: typeof errors = {};
-    if (!phone.trim()) newErrors.phone = "Phone number is required";
-    else if (phone.trim().length < 10)
-      newErrors.phone = "Enter a valid phone number";
-    if (!password) newErrors.password = "Password is required";
-    else if (password.length < 6)
-      newErrors.password = "Password must be at least 6 characters";
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
   const handleLogin = async () => {
-    if (!validate()) return;
+    /**
+     * Normalise before sending.
+     *
+     * Validation was `phone.trim().length < 10` — length only, no digit
+     * extraction — and the raw string went to a server doing an exact match.
+     * A user who typed their number the way the placeholder showed it
+     * (`+91 98765 43210`) simply could not log in, and got a generic
+     * "Login failed" that gave no hint why.
+     */
+    const phoneCheck = validatePhone(phone);
+    const nextErrors: typeof errors = {};
+
+    if (!phoneCheck.ok) nextErrors.phone = phoneCheck.message;
+    if (!password) nextErrors.password = "Password is required";
+    else if (password.length < 6)
+      nextErrors.password = "Password must be at least 6 characters";
+
+    setErrors(nextErrors);
+    if (Object.keys(nextErrors).length > 0 || !phoneCheck.ok) return;
+
     setLoadingState(true);
     dispatch(setLoading(true));
 
     try {
-      const response = await loginApi(phone.trim(), password);
+      const response = await loginApi(phoneCheck.value, password);
       const { access_token, refresh_token, user } = response.data;
 
       await tokenManager.saveAuthData(access_token, refresh_token, user);
       dispatch(setCredentials(user));
-    } catch (error: any) {
-      const message =
-        error?.response?.data?.message || "Login failed. Please try again.";
-      Alert.alert("Login Failed", message);
+    } catch (error) {
+      Alert.alert("Login Failed", describeError(error));
     } finally {
       setLoadingState(false);
       dispatch(setLoading(false));
@@ -133,9 +140,13 @@ const LoginScreen = ({ navigation }: any) => {
                       if (errors.phone)
                         setErrors((e) => ({ ...e, phone: undefined }));
                     }}
-                    placeholder="+91 98765 43210"
+                    placeholder="98765 43210"
                     placeholderTextColor={colors.textTertiary}
                     keyboardType="phone-pad"
+                    autoComplete="tel"
+                    textContentType="telephoneNumber"
+                    maxLength={16}
+                    accessibilityLabel="Phone number"
                     style={[styles.textInput, { color: colors.text }]}
                   />
                 </View>
@@ -179,11 +190,25 @@ const LoginScreen = ({ navigation }: any) => {
                     placeholder="Enter your password"
                     placeholderTextColor={colors.textTertiary}
                     secureTextEntry={!showPassword}
+                    // Without these the first character is auto-capitalised on
+                    // both platforms, and no password manager can fill or save
+                    // the credential.
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    autoComplete="current-password"
+                    textContentType="password"
+                    accessibilityLabel="Password"
+                    onSubmitEditing={handleLogin}
+                    returnKeyType="go"
                     style={[styles.textInput, { color: colors.text }]}
                   />
                   <TouchableOpacity
                     onPress={() => setShowPassword(!showPassword)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={
+                      showPassword ? "Hide password" : "Show password"
+                    }
                   >
                     <Ionicons
                       name={showPassword ? "eye-off-outline" : "eye-outline"}

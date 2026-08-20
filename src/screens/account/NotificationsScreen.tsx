@@ -20,6 +20,7 @@ import {
 } from "../../api/notificationApi";
 import { INotification } from "../../types";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
+import { logger } from "../../utils/logger";
 
 dayjs.extend(relativeTime);
 
@@ -48,7 +49,7 @@ const NotificationsScreen = ({ navigation }: any) => {
       setUnreadCount(response.data.unreadCount ?? 0);
       await cacheManager.set(CACHE_KEYS.NOTIFICATIONS, nextNotifications);
     } catch (error) {
-      console.error("Failed to load notifications:", error);
+      logger.error("Failed to load notifications:", error);
     } finally {
       setLoading(false);
     }

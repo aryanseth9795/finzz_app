@@ -14,6 +14,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Button } from "../../components/ui";
 import { forgotPasswordApi, resetPasswordApi } from "../../api/authApi";
+import { describeError } from "../../api/axios";
+import { useCooldown } from "../../hooks/useCooldown";
 
 type Step = "email" | "otp" | "password";
 
@@ -28,22 +30,15 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoadingState] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
 
   const otpRefs = useRef<(TextInput | null)[]>([]);
 
-  const startCooldown = () => {
-    setResendCooldown(60);
-    const interval = setInterval(() => {
-      setResendCooldown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
+  // Shared hook: the copy-pasted version never cleared its interval.
+  const {
+    remaining: resendCooldown,
+    isCoolingDown,
+    start: startCooldown,
+  } = useCooldown(60);
 
   // ── Step 1: Send OTP ────────────────────────────────────
   const handleSendOtp = async () => {
@@ -67,25 +62,35 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
   };
 
   const handleResend = async () => {
-    if (resendCooldown > 0) return;
+    if (isCoolingDown) return;
     try {
       await forgotPasswordApi(email.trim());
       startCooldown();
       Alert.alert("OTP Sent", "A new OTP has been sent to your email.");
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to resend OTP",
-      );
+    } catch (error) {
+      Alert.alert("Error", describeError(error));
     }
   };
 
   // ── OTP input handlers ──────────────────────────────────
+  // Digit-filtered, and handles a pasted six-digit code.
   const handleOtpChange = (text: string, index: number) => {
+    const digits = text.replace(/\D/g, "");
+
+    if (digits.length > 1) {
+      const next = [...otp];
+      for (let i = 0; i < digits.length && index + i < 6; i++) {
+        next[index + i] = digits[i];
+      }
+      setOtp(next);
+      otpRefs.current[Math.min(index + digits.length, 6) - 1]?.focus();
+      return;
+    }
+
     const newOtp = [...otp];
-    newOtp[index] = text;
+    newOtp[index] = digits;
     setOtp(newOtp);
-    if (text && index < 5) otpRefs.current[index + 1]?.focus();
+    if (digits && index < 5) otpRefs.current[index + 1]?.focus();
   };
 
   const handleOtpKeyPress = (key: string, index: number) => {
@@ -118,14 +123,26 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
     setLoadingState(true);
     try {
       await resetPasswordApi(email.trim(), otpValue, newPassword);
-      Alert.alert("Success", "Password reset successfully!", [
-        { text: "Login", onPress: () => navigation.navigate("Login") },
-      ]);
-    } catch (error: any) {
       Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to reset password",
+        "Password reset",
+        "Your password has been changed. You have been signed out on all devices — please sign in again.",
+        [{ text: "Sign in", onPress: () => navigation.navigate("Login") }],
       );
+    } catch (error) {
+      /**
+       * An invalid OTP is now discovered here, so send the user back to the
+       * OTP step rather than stranding them on the password form.
+       *
+       * `handleVerifyOtp` only checks that six digits were entered — it never
+       * contacts the server — so a wrong code was previously only revealed
+       * after the user had typed a new password twice, with no way back.
+       */
+      const message = describeError(error);
+      if (/otp/i.test(message)) {
+        setOtp(["", "", "", "", "", ""]);
+        setStep("otp");
+      }
+      Alert.alert("Could not reset password", message);
     } finally {
       setLoadingState(false);
     }

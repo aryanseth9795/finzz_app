@@ -24,6 +24,8 @@ interface ButtonProps {
   icon?: React.ReactNode;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  /** Overrides the visible title as the accessible name. */
+  accessibilityLabel?: string;
 }
 
 const Button: React.FC<ButtonProps> = ({
@@ -37,12 +39,17 @@ const Button: React.FC<ButtonProps> = ({
   icon,
   style,
   textStyle,
+  accessibilityLabel,
 }) => {
   const { theme } = useTheme();
   const { colors, borderRadius: br } = theme;
 
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // `impactAsync` returns a promise that rejects on devices with no haptic
+    // engine. Unawaited and uncaught, that surfaced as an unhandled rejection.
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(
+      () => undefined,
+    );
     onPress();
   };
 
@@ -148,6 +155,18 @@ const Button: React.FC<ButtonProps> = ({
       disabled={disabled || loading}
       activeOpacity={0.7}
       style={[getButtonStyle(), style]}
+      /**
+       * Accessibility.
+       *
+       * There were zero accessibility annotations anywhere in the app, so a
+       * disabled button was conveyed only by `opacity: 0.6` and a loading one
+       * announced nothing at all. `accessibilityState` is what tells a screen
+       * reader the control cannot currently be activated.
+       */
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
+      accessibilityHint={loading ? "In progress" : undefined}
     >
       {loading ? (
         <ActivityIndicator
