@@ -12,6 +12,7 @@ import {
   Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "../../components/ui";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -37,6 +38,7 @@ import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { describeError } from "../../api/axios";
 import { CACHE_DURATION } from "../../constants/api";
 import { logger } from "../../utils/logger";
+import { pickInitialLedger, readCachedPage } from "../../utils/expenseLedger";
 
 const ExpenseScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
@@ -62,16 +64,16 @@ const ExpenseScreen = ({ navigation }: any) => {
    * running `loadLedgers` and `loadExpenses` concurrently, producing a third
    * writer to the same slice.
    *
-   * A focus listener alone covers both cases: it fires on mount and on every
-   * subsequent focus.
+   * `useFocusEffect` covers both cases: it runs on the first focus and on
+   * every later one. A raw `focus` listener added in an effect is registered
+   * after the screen has already focused, so it can miss the initial load.
    */
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("focus", () => {
+  useFocusEffect(
+    useCallback(() => {
       void loadLedgers();
-    });
-    return unsubscribe;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
 
   const loadLedgers = async (isManualRefresh = false) => {
     try {
@@ -79,7 +81,16 @@ const ExpenseScreen = ({ navigation }: any) => {
         CACHE_KEYS.EXPENSE_LEDGERS,
         CACHE_DURATION.EXPENSES,
       );
-      if (cached) dispatch(setLedgers(cached));
+      if (cached) {
+        dispatch(setLedgers(cached));
+        // Open the cached ledger immediately so its expenses load in parallel
+        // with the ledger request below, instead of waiting for it. The
+        // network result keeps the same ledger ID, so it does not refetch.
+        if (!store.getState().expense.activeLedger) {
+          const initial = pickInitialLedger(cached);
+          if (initial) dispatch(setActiveLedger(initial));
+        }
+      }
 
       const now = new Date();
       const currentYear = now.getFullYear();
@@ -116,7 +127,7 @@ const ExpenseScreen = ({ navigation }: any) => {
         }
       } else if (!currentActiveLedger && ledgerList.length > 0) {
         // First load: default to current month
-        dispatch(setActiveLedger(currentRealWorldLedger || ledgerList[0]));
+        dispatch(setActiveLedger(pickInitialLedger(ledgerList, now)));
       }
     } catch (error) {
       logger.error("Failed to load ledgers:", error);
@@ -144,16 +155,15 @@ const ExpenseScreen = ({ navigation }: any) => {
       if (fresh) {
         dispatch(setTxLoading(true));
 
-        // Load from cache first
-        const cached = await cacheManager.get<IExpense[]>(
-          CACHE_KEYS.EXPENSES(activeLedger._id),
-          CACHE_DURATION.EXPENSES,
+        // Load from cache first. The page is stored with its cursor; a page
+        // without one never claims more, so scrolling cannot refetch page 1.
+        const cached = readCachedPage(
+          await cacheManager.get<unknown>(
+            CACHE_KEYS.EXPENSES(activeLedger._id),
+            CACHE_DURATION.EXPENSES,
+          ),
         );
-        if (cached) {
-          dispatch(
-            setExpenses({ expenses: cached, nextCursor: null, hasMore: true }),
-          );
-        }
+        if (cached) dispatch(setExpenses(cached));
       }
 
       const response = await getExpensesApi(
@@ -176,10 +186,11 @@ const ExpenseScreen = ({ navigation }: any) => {
             hasMore: more,
           }),
         );
-        await cacheManager.set(
-          CACHE_KEYS.EXPENSES(activeLedger._id),
-          newExpenses,
-        );
+        await cacheManager.set(CACHE_KEYS.EXPENSES(activeLedger._id), {
+          expenses: newExpenses,
+          nextCursor: newCursor,
+          hasMore: more,
+        });
       } else {
         dispatch(
           appendExpenses({
