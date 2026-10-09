@@ -33,6 +33,7 @@ const VaultUnlockScreen = () => {
 
   const create = async (type: "pin" | "password", value: string) => {
     setBusy(true);
+    setError(null);
     try {
       await vault.create(type, value);
     } catch {
@@ -52,6 +53,8 @@ const VaultUnlockScreen = () => {
       if (r === "wrong") setError(isPin ? "Wrong PIN" : "Wrong password");
       if (r === "throttled") setError("Too many attempts. Please wait.");
       if (r === "unavailable") setUnavailable(true);
+    } catch {
+      setError("Couldn't unlock. Please try again.");
     } finally {
       setSecret("");
       setBusy(false);
@@ -76,6 +79,15 @@ const VaultUnlockScreen = () => {
                 Passwords stay on this phone, encrypted with your PIN or password.
               </Text>
               <SecretForm submitLabel={busy ? "Securing…" : "Create vault"} busy={busy} onSubmit={create} />
+              {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
+            </>
+          ) : vault.status === "unreadable" ? (
+            <>
+              <Text style={[styles.title, { color: colors.text }]}>Vault can't be read</Text>
+              <Text style={[styles.sub, { color: colors.textSecondary }]}>
+                The saved vault on this phone is damaged or from a newer version of Finzz. It has not been changed.
+                Update the app, or reset to start a new vault.
+              </Text>
             </>
           ) : unavailable ? (
             <>
@@ -117,10 +129,12 @@ const VaultUnlockScreen = () => {
             </>
           )}
 
-          {vault.status === "locked" ? (
+          {vault.status === "locked" || vault.status === "unreadable" ? (
             <TouchableOpacity onPress={() => setShowReset(true)}>
               <Text style={[styles.link, { color: colors.textTertiary }]}>
-                {unavailable ? "Reset vault" : `Forgot your ${isPin ? "PIN" : "password"}? Reset vault`}
+                {unavailable || vault.status === "unreadable"
+                  ? "Reset vault"
+                  : `Forgot your ${isPin ? "PIN" : "password"}? Reset vault`}
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -132,8 +146,13 @@ const VaultUnlockScreen = () => {
         onCancel={() => setShowReset(false)}
         onConfirm={async () => {
           setShowReset(false);
-          setUnavailable(false);
-          await vault.reset();
+          try {
+            await vault.reset();
+            setUnavailable(false);
+            setError(null);
+          } catch {
+            setError("Couldn't reset the vault. Please try again.");
+          }
         }}
       />
     </SafeAreaView>

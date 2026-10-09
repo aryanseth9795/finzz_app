@@ -58,7 +58,7 @@ const VaultSettingsScreen = ({ navigation }: any) => {
         setChanging(false);
         setCurrent("");
         showSuccessToast(type === "pin" ? "PIN changed" : "Password changed");
-      } else {
+      } else if (r !== "cancelled") {
         setChangeError(r === "throttled" ? "Too many attempts. Please wait." : "Current PIN or password is wrong");
       }
     } catch {
@@ -162,7 +162,11 @@ const VaultSettingsScreen = ({ navigation }: any) => {
         onCancel={() => setShowReset(false)}
         onConfirm={async () => {
           setShowReset(false);
-          await vault.reset();
+          try {
+            await vault.reset();
+          } catch {
+            showErrorToast("Couldn't reset the vault. Please try again.");
+          }
         }}
       />
     </SafeAreaView>

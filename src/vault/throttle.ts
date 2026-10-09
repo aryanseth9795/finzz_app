@@ -27,3 +27,13 @@ export const canAttempt = (state: ThrottleState, now: number): boolean => now >=
 
 export const remainingMs = (state: ThrottleState, now: number): number =>
   Math.max(0, state.lockedUntil - now);
+
+/**
+ * A lockout can never extend beyond its own length from now. Without this, a
+ * failure recorded while the clock was ahead (then corrected) could lock the
+ * vault for days, leaving Reset — data loss — as the only way out.
+ */
+export const clampThrottle = (state: ThrottleState, now: number): ThrottleState => ({
+  failures: state.failures,
+  lockedUntil: Math.min(state.lockedUntil, now + lockoutFor(state.failures)),
+});

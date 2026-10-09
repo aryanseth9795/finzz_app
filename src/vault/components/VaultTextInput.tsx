@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, TextInputProps } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useVault } from "../VaultContext";
 
 interface Props extends TextInputProps {
   label: string;
@@ -9,8 +10,10 @@ interface Props extends TextInputProps {
   secure?: boolean;
 }
 
-const VaultTextInput = ({ label, secure, style, ...rest }: Props) => {
+const VaultTextInput = ({ label, secure, style, onChangeText, ...rest }: Props) => {
   const { theme } = useTheme();
+  // Typing counts as activity: the idle lock must not discard a long draft.
+  const { touch } = useVault();
   const { colors } = theme;
   const [hidden, setHidden] = useState(true);
   return (
@@ -19,6 +22,10 @@ const VaultTextInput = ({ label, secure, style, ...rest }: Props) => {
       <View style={[styles.row, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <TextInput
           {...rest}
+          onChangeText={(text) => {
+            touch();
+            onChangeText?.(text);
+          }}
           style={[styles.input, { color: colors.text }, style]}
           placeholderTextColor={colors.textTertiary}
           secureTextEntry={secure && hidden}

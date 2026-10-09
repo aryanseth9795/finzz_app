@@ -45,8 +45,9 @@ export class VaultDecryptError extends Error {
 
 export const toB64 = (bytes: Uint8Array): string => {
   let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  // Small chunks: Hermes limits the argument count of a spread call.
+  for (let i = 0; i < bytes.length; i += 0x1000) {
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x1000));
   }
   return btoa(s);
 };

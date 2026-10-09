@@ -78,3 +78,12 @@ describe("vault crypto", () => {
     expect(parseEnvelope({ ...env, ct: 5 })).toBeNull();
   });
 });
+
+describe("large vaults", () => {
+  it("round-trips a 200 KB vault (base64 chunking)", async () => {
+    const big = { groups: [], entries: Array.from({ length: 100 }, (_, i) => ({ id: `e${i}`, notes: "x".repeat(2000) })) };
+    const header = createHeader("pin", rand, FAST);
+    const key = await deriveKey("123456", device, header);
+    expect(openVault(sealVault(big, key, header, rand), key)).toEqual(big);
+  });
+});

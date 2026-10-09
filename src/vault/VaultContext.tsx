@@ -1,28 +1,22 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useSyncExternalStore,
+} from "react";
 import { AppState, View } from "react-native";
-import {
-  SecretType,
-  VaultEnvelope,
-  VaultDecryptError,
-  createHeader,
-  deriveKey,
-  openVault,
-  sealVault,
-} from "./crypto";
+import type { SecretType } from "./crypto";
+import type { VaultData } from "./model";
+import type { ThrottleState } from "./throttle";
+import { UnlockResult, VaultController, VaultStatus } from "./controller";
+import { vaultStore } from "./storage";
 import { randomBytes } from "./random";
-import { EMPTY_VAULT, VaultData } from "./model";
-import { INITIAL_THROTTLE, ThrottleState, canAttempt, recordFailure } from "./throttle";
-import {
-  createDeviceSecret,
-  readDeviceSecret,
-  readEnvelope,
-  readThrottle,
-  wipeVault,
-  writeEnvelope,
-  writeThrottle,
-} from "./storage";
+import { flushClipboardOnActive } from "./clipboard";
 
-export type VaultStatus = "loading" | "none" | "locked" | "unlocked";
+export type { VaultStatus } from "./controller";
 
 export interface VaultContextValue {
   status: VaultStatus;
@@ -30,10 +24,14 @@ export interface VaultContextValue {
   data: VaultData | null;
   throttle: ThrottleState;
   create(type: SecretType, secret: string): Promise<void>;
-  unlock(secret: string): Promise<"ok" | "wrong" | "throttled" | "unavailable">;
+  unlock(secret: string): Promise<UnlockResult>;
   lock(): void;
   save(mutator: (d: VaultData) => VaultData): Promise<void>;
-  changeSecret(current: string, type: SecretType, next: string): Promise<"ok" | "wrong" | "throttled">;
+  changeSecret(
+    current: string,
+    type: SecretType,
+    next: string,
+  ): Promise<"ok" | "wrong" | "throttled" | "unavailable" | "cancelled">;
   reset(): Promise<void>;
   touch(): void;
 }
@@ -48,186 +46,77 @@ export const useVault = (): VaultContextValue => {
 };
 
 /**
- * Owns the derived key and decrypted data — in memory only, never in Redux,
- * never logged. Mounted inside the Vault tab, so nothing is decrypted unless
- * the user opens it.
+ * React binding over `VaultController`, which owns the key and decrypted data
+ * in memory only — never Redux, never logged. Mounted inside the Vault tab,
+ * so nothing is decrypted unless the user opens it.
  */
 export const VaultProvider = ({ children }: { children: React.ReactNode }) => {
-  const [status, setStatus] = useState<VaultStatus>("loading");
-  const [data, setData] = useState<VaultData | null>(null);
-  const [throttle, setThrottle] = useState<ThrottleState>(INITIAL_THROTTLE);
-  const [secretType, setSecretType] = useState<SecretType | null>(null);
-
-  const keyRef = useRef<Uint8Array | null>(null);
-  const envRef = useRef<VaultEnvelope | null>(null);
-  const dataRef = useRef<VaultData | null>(null);
+  const controllerRef = useRef<VaultController | null>(null);
+  if (!controllerRef.current) {
+    controllerRef.current = new VaultController(vaultStore, randomBytes);
+  }
+  const c = controllerRef.current;
+  const snap = useSyncExternalStore(c.subscribe, c.getSnapshot);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const lock = useCallback(() => {
+  const clearIdle = () => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
     idleTimer.current = null;
-    keyRef.current = null;
-    dataRef.current = null;
-    setData(null);
-    setStatus((s) => (s === "unlocked" ? "locked" : s));
-  }, []);
+  };
 
+  const lock = useCallback(() => {
+    clearIdle();
+    c.lock();
+  }, [c]);
+
+  /** Any interaction (touch or typing) postpones the idle lock. */
   const touch = useCallback(() => {
-    if (!keyRef.current) return;
-    if (idleTimer.current) clearTimeout(idleTimer.current);
+    if (c.getSnapshot().status !== "unlocked") return;
+    clearIdle();
     idleTimer.current = setTimeout(lock, IDLE_LOCK_MS);
-  }, [lock]);
+  }, [c, lock]);
 
-  const commitUnlocked = useCallback(
-    (key: Uint8Array, env: VaultEnvelope, d: VaultData) => {
-      keyRef.current = key;
-      envRef.current = env;
-      dataRef.current = d;
-      setData(d);
-      setSecretType(env.secretType);
-      setStatus("unlocked");
-      touch();
-    },
-    [touch],
-  );
-
-  // Initial load.
   useEffect(() => {
-    let cancelled = false;
-    void Promise.all([readEnvelope(), readThrottle()]).then(([env, t]) => {
-      if (cancelled) return;
-      envRef.current = env;
-      setSecretType(env?.secretType ?? null);
-      setThrottle(t);
-      setStatus(env ? "locked" : "none");
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void c.load();
+  }, [c]);
 
-  // Lock the moment the app leaves the foreground.
+  useEffect(() => {
+    if (snap.status === "unlocked") touch();
+    else clearIdle();
+  }, [snap.status, touch]);
+
+  // Lock the moment the app leaves the foreground; finish any pending
+  // clipboard clear when it comes back (timers pause in the background).
   useEffect(() => {
     const sub = AppState.addEventListener("change", (s) => {
-      if (s !== "active") lock();
+      if (s === "active") void flushClipboardOnActive();
+      else lock();
     });
     return () => {
       sub.remove();
-      if (idleTimer.current) clearTimeout(idleTimer.current);
+      clearIdle();
     };
   }, [lock]);
 
-  const failAttempt = useCallback(async () => {
-    const next = recordFailure(await readThrottle(), Date.now());
-    setThrottle(next);
-    await writeThrottle(next).catch(() => undefined);
-  }, []);
-
-  const clearAttempts = useCallback(async () => {
-    setThrottle(INITIAL_THROTTLE);
-    await writeThrottle(INITIAL_THROTTLE).catch(() => undefined);
-  }, []);
-
-  const create = useCallback(
-    async (type: SecretType, secret: string) => {
-      const device = (await readDeviceSecret()) ?? (await createDeviceSecret(randomBytes));
-      const header = createHeader(type, randomBytes);
-      const key = await deriveKey(secret, device, header);
-      const env = sealVault(EMPTY_VAULT, key, header, randomBytes);
-      await writeEnvelope(env);
-      await clearAttempts();
-      commitUnlocked(key, env, EMPTY_VAULT);
-    },
-    [clearAttempts, commitUnlocked],
-  );
-
-  /** Derive and verify against the stored envelope; shared by unlock and changeSecret. */
-  const tryOpen = useCallback(
-    async (secret: string): Promise<{ key: Uint8Array; data: VaultData } | "wrong" | "throttled" | "unavailable"> => {
-      const env = envRef.current;
-      if (!env) return "unavailable";
-      if (!canAttempt(await readThrottle(), Date.now())) return "throttled";
-      const device = await readDeviceSecret();
-      // Envelope restored (e.g. by Android backup) without its keystore secret.
-      if (!device) return "unavailable";
-      const key = await deriveKey(secret, device, env);
-      try {
-        const d = openVault<VaultData>(env, key);
-        await clearAttempts();
-        return { key, data: d };
-      } catch (e) {
-        if (!(e instanceof VaultDecryptError)) throw e;
-        await failAttempt();
-        return "wrong";
-      }
-    },
-    [clearAttempts, failAttempt],
-  );
-
-  const unlock = useCallback(
-    async (secret: string) => {
-      const r = await tryOpen(secret);
-      if (typeof r === "string") return r;
-      commitUnlocked(r.key, envRef.current!, r.data);
-      return "ok" as const;
-    },
-    [tryOpen, commitUnlocked],
-  );
-
-  /** Persist first, then show: a failed write never looks saved. */
-  const save = useCallback(
-    async (mutator: (d: VaultData) => VaultData) => {
-      const key = keyRef.current;
-      const env = envRef.current;
-      const current = dataRef.current;
-      if (!key || !env || !current) throw new Error("Vault is locked");
-      const next = mutator(current);
-      const sealed = sealVault(next, key, env, randomBytes);
-      await writeEnvelope(sealed);
-      envRef.current = sealed;
-      dataRef.current = next;
-      setData(next);
-      touch();
-    },
-    [touch],
-  );
-
-  const changeSecret = useCallback(
-    async (current: string, type: SecretType, next: string) => {
-      const r = await tryOpen(current);
-      if (r === "unavailable") return "wrong" as const;
-      if (typeof r === "string") return r;
-      const device = await readDeviceSecret();
-      if (!device) return "wrong" as const;
-      const header = createHeader(type, randomBytes);
-      const key = await deriveKey(next, device, header);
-      const env = sealVault(r.data, key, header, randomBytes);
-      await writeEnvelope(env);
-      commitUnlocked(key, env, r.data);
-      return "ok" as const;
-    },
-    [tryOpen, commitUnlocked],
-  );
-
-  const reset = useCallback(async () => {
-    await wipeVault();
-    keyRef.current = null;
-    envRef.current = null;
-    dataRef.current = null;
-    setData(null);
-    setSecretType(null);
-    setThrottle(INITIAL_THROTTLE);
-    setStatus("none");
-  }, []);
-
   const value = useMemo<VaultContextValue>(
-    () => ({ status, secretType, data, throttle, create, unlock, lock, save, changeSecret, reset, touch }),
-    [status, secretType, data, throttle, create, unlock, lock, save, changeSecret, reset, touch],
+    () => ({
+      ...snap,
+      create: (type, secret) => c.create(type, secret),
+      unlock: (secret) => c.unlock(secret),
+      lock,
+      save: async (mutator) => {
+        await c.save(mutator);
+        touch();
+      },
+      changeSecret: (current, type, next) => c.changeSecret(current, type, next),
+      reset: () => c.reset(),
+      touch,
+    }),
+    [snap, c, lock, touch],
   );
 
   return (
     <VaultContext.Provider value={value}>
-      {/* Any touch inside the vault counts as activity for the idle lock. */}
       <View style={{ flex: 1 }} onTouchStart={touch}>
         {children}
       </View>
