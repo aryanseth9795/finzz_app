@@ -4,15 +4,19 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Updates from "expo-updates";
 import Constants from "expo-constants";
 import { getAppVersionApi } from "../api/appApi";
+import { withTimeout } from "../utils/async";
 import {
   AppRelease,
   GateStatus,
   decideGate,
+  nextOptionalPrompt,
   parseRelease,
 } from "../utils/version";
 
 const RELEASE_KEY = "@finzz_app_release";
 const DISMISS_PREFIX = "@finzz_update_dismissed_";
+/** Upper bound on the launch-time cache read before deciding without it. */
+const CACHE_READ_TIMEOUT_MS = 2000;
 
 /** Never lock a developer out of their own dev build unless they opt in. */
 const ENABLED = !__DEV__ || process.env.EXPO_PUBLIC_FORCE_UPDATE_DEV === "1";
@@ -40,9 +44,12 @@ export function useForceUpdate() {
     ENABLED ? "checking" : "ok",
   );
   const [release, setRelease] = useState<AppRelease | null>(null);
-  const [showOptional, setShowOptional] = useState(false);
+  const [optionalVersion, setOptionalVersion] = useState<string | null>(null);
   const cached = useRef<AppRelease | null>(null);
   const inFlight = useRef(false);
+  // The version already prompted for this session. Refetches create a new
+  // release object for the same version and must not prompt again.
+  const shownVersion = useRef<string | null>(null);
 
   const apply = useCallback(
     async (fresh: AppRelease | null) => {
@@ -53,9 +60,20 @@ export function useForceUpdate() {
         const dismissed = await AsyncStorage.getItem(
           DISMISS_PREFIX + gate.release.latestVersion,
         ).catch(() => null);
-        setShowOptional(!dismissed);
+        // Checked and recorded synchronously after the await, so two
+        // overlapping applies cannot both prompt.
+        const next = nextOptionalPrompt(
+          gate.status,
+          gate.release,
+          shownVersion.current,
+          !!dismissed,
+        );
+        if (next) {
+          shownVersion.current = next;
+          setOptionalVersion(next);
+        }
       } else {
-        setShowOptional(false);
+        setOptionalVersion(null);
       }
     },
     [installedVersion],
@@ -88,7 +106,8 @@ export function useForceUpdate() {
 
     // Decide from cache first so a blocked install stays blocked offline and
     // an allowed one is not held behind a network round trip.
-    void readCached().then(async (c) => {
+    // Bounded: a hung storage call must not hold the app on the splash.
+    void withTimeout(readCached(), CACHE_READ_TIMEOUT_MS, null).then(async (c) => {
       if (cancelled) return;
       cached.current = c;
       await apply(null);
@@ -105,14 +124,21 @@ export function useForceUpdate() {
   }, [apply, check]);
 
   const dismissOptional = useCallback(() => {
-    setShowOptional(false);
-    if (release) {
-      void AsyncStorage.setItem(
-        DISMISS_PREFIX + release.latestVersion,
-        "1",
-      ).catch(() => undefined);
-    }
-  }, [release]);
+    setOptionalVersion((version) => {
+      if (version) {
+        void AsyncStorage.setItem(DISMISS_PREFIX + version, "1").catch(
+          () => undefined,
+        );
+      }
+      return null;
+    });
+  }, []);
 
-  return { status, release, installedVersion, showOptional, dismissOptional };
+  return {
+    status,
+    release,
+    installedVersion,
+    optionalVersion,
+    dismissOptional,
+  };
 }

@@ -67,3 +67,20 @@ export const decideGate = (
   }
   return { status: "ok", release: effective };
 };
+
+/**
+ * Which version to show the "Update available" prompt for, if any.
+ *
+ * Keyed on the version STRING, not the release object: a refetch produces a
+ * new object for the same release, and re-prompting on identity stacked
+ * duplicate alerts.
+ */
+export const nextOptionalPrompt = (
+  status: GateStatus | "checking",
+  release: AppRelease | null,
+  shownVersion: string | null,
+  dismissed: boolean,
+): string | null => {
+  if (status !== "optional" || !release || dismissed) return null;
+  return release.latestVersion === shownVersion ? null : release.latestVersion;
+};

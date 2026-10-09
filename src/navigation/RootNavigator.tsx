@@ -48,21 +48,27 @@ const RootNavigator = () => {
   useNotifications();
   const gate = useForceUpdate();
 
-  // Optional (non-blocking) update: ask once per version.
+  // Optional (non-blocking) update: ask once per version. Keyed on the
+  // version string, so a refetched release object does not re-prompt.
   useEffect(() => {
-    if (!gate.showOptional || !gate.release) return;
-    const { latestVersion, apkUrl } = gate.release;
-    Alert.alert("Update available", `Finzz v${latestVersion} is available.`, [
-      { text: "Later", style: "cancel", onPress: gate.dismissOptional },
-      {
-        text: "Download",
-        onPress: () => {
-          gate.dismissOptional();
-          if (apkUrl) void Linking.openURL(apkUrl).catch(() => undefined);
+    if (!gate.optionalVersion) return;
+    const apkUrl = gate.release?.apkUrl;
+    Alert.alert(
+      "Update available",
+      `Finzz v${gate.optionalVersion} is available.`,
+      [
+        { text: "Later", style: "cancel", onPress: gate.dismissOptional },
+        {
+          text: "Download",
+          onPress: () => {
+            gate.dismissOptional();
+            if (apkUrl) void Linking.openURL(apkUrl).catch(() => undefined);
+          },
         },
-      },
-    ]);
-  }, [gate.showOptional, gate.release, gate.dismissOptional]);
+      ],
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gate.optionalVersion]);
 
   /**
    * Central sign-out.
