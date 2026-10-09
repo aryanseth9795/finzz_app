@@ -25,6 +25,7 @@ import ReportScreen from "../screens/reports/ReportScreen";
 import ExpenseScreen from "../screens/expense/ExpenseScreen";
 import AddEditExpenseScreen from "../screens/expense/AddEditExpenseScreen";
 import ExpenseStatsScreen from "../screens/expense/ExpenseStatsScreen";
+import VaultStackNavigator from "./VaultStack";
 
 const ChatsStack = createNativeStackNavigator();
 
@@ -143,6 +144,9 @@ const MainTabs = () => {
             case "Expenses":
               iconName = focused ? "wallet" : "wallet-outline";
               break;
+            case "Vault":
+              iconName = focused ? "lock-closed" : "lock-closed-outline";
+              break;
           }
 
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -169,6 +173,7 @@ const MainTabs = () => {
       <Tab.Screen name="Chats" component={ChatsStackNavigator} />
       <Tab.Screen name="Pool" component={PoolStackNavigator} />
       <Tab.Screen name="Expenses" component={ExpenseStackNavigator} />
+      <Tab.Screen name="Vault" component={VaultStackNavigator} />
     </Tab.Navigator>
   );
 };
