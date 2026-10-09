@@ -2,6 +2,7 @@ import {
   createNavigationContainerRef,
   CommonActions,
 } from "@react-navigation/native";
+import { routeForNotification } from "../utils/notificationRoute";
 
 /**
  * Navigation reference usable from outside React components.
@@ -21,55 +22,33 @@ export const navigate = (name: string, params?: object) => {
 };
 
 /**
+ * Resolve once the navigator has mounted, or `false` after `timeoutMs`.
+ *
+ * A cold-start tap is read while the splash screen is still showing, before
+ * the NavigationContainer exists; routing it immediately silently dropped it.
+ */
+export const waitForNavigation = (timeoutMs = 10000): Promise<boolean> =>
+  new Promise((resolve) => {
+    const started = Date.now();
+    const poll = () => {
+      if (navigationRef.isReady()) return resolve(true);
+      if (Date.now() - started >= timeoutMs) return resolve(false);
+      setTimeout(poll, 100);
+    };
+    poll();
+  });
+
+/**
  * Route a notification payload to the screen it refers to.
  *
  * Nested navigators need an explicit tab plus a `screen` param; navigating to
  * a bare screen name only searches the current navigator and its parents, not
  * sibling stacks — which is the same mistake that made the Account screen's
- * "Reports" menu item a silent no-op.
+ * "Reports" menu item a silent no-op. The mapping lives in
+ * `routeForNotification` so it can be tested without a navigator.
  */
 export const routeNotification = (data: Record<string, unknown> | undefined) => {
-  if (!data || !navigationRef.isReady()) return;
-
-  const type = String(data.type ?? "");
-  const chatId = data.chatId ? String(data.chatId) : undefined;
-  const poolId = data.poolId ? String(data.poolId) : undefined;
-
-  switch (type) {
-    case "txn_added":
-    case "txn_verified":
-    case "txn_rejected":
-    case "txn_reworked":
-    case "txn_deleted":
-      if (chatId) {
-        navigate("Chats", { screen: "ChatScreen", params: { chatId } });
-      } else {
-        navigate("Chats", { screen: "Home" });
-      }
-      return;
-
-    case "friend_request":
-    case "friend_accepted":
-      navigate("Chats", { screen: "AddFriend" });
-      return;
-
-    case "pool_tx_added":
-    case "pool_tx_verified":
-    case "pool_member_added":
-      if (poolId) {
-        navigate("Pool", { screen: "PoolChat", params: { poolId } });
-      } else {
-        navigate("Pool", { screen: "PoolList" });
-      }
-      return;
-
-    case "pool_member_removed":
-      navigate("Pool", { screen: "PoolList" });
-      return;
-
-    default:
-      // Unknown or admin broadcast: the notification feed is the useful
-      // destination, rather than doing nothing at all.
-      navigate("Expenses", { screen: "Notifications" });
-  }
+  if (!navigationRef.isReady()) return;
+  const route = routeForNotification(data);
+  if (route) navigate(route.name, route.params);
 };

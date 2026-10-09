@@ -5,7 +5,32 @@ import Constants from "expo-constants";
 import { Platform } from "react-native";
 import { updatePushTokenApi } from "../api/authApi";
 import { useAppSelector } from "../store";
-import { routeNotification } from "../navigation/navigationRef";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import {
+  routeNotification,
+  waitForNavigation,
+} from "../navigation/navigationRef";
+import { isNewLaunchResponse } from "../utils/notificationRoute";
+
+/** Identifier of the last notification tap already routed. */
+const LAST_HANDLED_KEY = "@finzz_last_handled_notification";
+
+/**
+ * Route a tap at most once, whichever path delivers it (live listener or the
+ * cold-start lookup), and remember it so later launches do not replay it.
+ */
+const handleResponse = async (response: Notifications.NotificationResponse) => {
+  const id = response.notification.request.identifier;
+  const lastHandled = await AsyncStorage.getItem(LAST_HANDLED_KEY).catch(
+    () => null,
+  );
+  if (!isNewLaunchResponse(id, lastHandled)) return;
+  await AsyncStorage.setItem(LAST_HANDLED_KEY, id).catch(() => undefined);
+  await waitForNavigation();
+  routeNotification(
+    response.notification.request.content.data as Record<string, unknown>,
+  );
+};
 
 /**
  * Foreground presentation.
@@ -62,9 +87,7 @@ export function useNotifications() {
       Notifications.addNotificationResponseReceivedListener((response) => {
         // Was a stub that logged and returned, so tapping a notification did
         // nothing. Routing now happens via the navigation ref.
-        routeNotification(
-          response.notification.request.content.data as Record<string, unknown>,
-        );
+        void handleResponse(response);
       });
 
     return () => {
@@ -79,6 +102,11 @@ export function useNotifications() {
    * `addNotificationResponseReceivedListener` does not fire for the tap that
    * started the process, so without this the deep link is lost precisely when
    * the user most clearly expressed intent.
+   *
+   * But the "last response" persists: it was returned on EVERY later launch
+   * too, replaying an old tap — and since admin broadcasts routed to the
+   * Expenses tab, the app kept opening there. Each tap is now handled once
+   * (by identifier) and the stored response is cleared after use.
    */
   useEffect(() => {
     if (!userId) return;
@@ -87,9 +115,8 @@ export function useNotifications() {
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
         if (cancelled || !response) return;
-        routeNotification(
-          response.notification.request.content.data as Record<string, unknown>,
-        );
+        Notifications.clearLastNotificationResponse();
+        return handleResponse(response);
       })
       .catch(() => undefined);
 
