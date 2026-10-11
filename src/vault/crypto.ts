@@ -34,7 +34,14 @@ export interface VaultEnvelope extends VaultHeader {
 
 export type RandomBytes = (n: number) => Uint8Array;
 
-export const DEFAULT_KDF: KdfParams = { name: "scrypt", N: 2 ** 14, r: 8, p: 1 };
+/**
+ * scrypt runs in interpreted JS on Hermes (no JIT): N=2^14 took 30-45 s per
+ * unlock on a phone. The real protection against offline guessing is the
+ * 256-bit keystore device secret, not the KDF cost, so a light N is enough;
+ * on-device guessing is limited by the throttle. Older vaults are re-sealed
+ * with these params on their next unlock (VaultController.upgradeKdf).
+ */
+export const DEFAULT_KDF: KdfParams = { name: "scrypt", N: 2 ** 9, r: 8, p: 1 };
 
 export class VaultDecryptError extends Error {
   constructor() {

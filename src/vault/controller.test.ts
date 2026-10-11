@@ -209,3 +209,58 @@ describe("reset", () => {
     expect(c.getSnapshot().status).toBe("unlocked");
   });
 });
+
+describe("KDF upgrade", () => {
+  // A vault sealed with older (costlier) params than the controller now uses.
+  const OLD: KdfParams = { name: "scrypt", N: 32, r: 8, p: 1 };
+  const makeOld = () => new VaultController(store, rand, { kdf: OLD, now: () => clock });
+  const storedKdf = () => JSON.parse(store.raw!).kdf;
+
+  it("re-seals an old vault with the current params on unlock, keeping its data", async () => {
+    const old = makeOld();
+    await old.load();
+    await old.create("pin", "123456");
+    await old.save((d) => addGroup(d, "Mail", "mail", "g-mail"));
+    expect(storedKdf()).toEqual(OLD);
+
+    const c = make();
+    await c.load();
+    expect(await c.unlock("123456")).toBe("ok");
+    expect(storedKdf()).toEqual(FAST);
+    expect(c.getSnapshot().data?.groups.map((g) => g.name)).toContain("Mail");
+
+    // Still opens with the same secret, and later saves keep the new params.
+    c.lock();
+    expect(await c.unlock("123456")).toBe("ok");
+    await c.save((d) => addGroup(d, "Social", "people", "g-social"));
+    expect(storedKdf()).toEqual(FAST);
+    const c2 = make();
+    await c2.load();
+    expect(await c2.unlock("123456")).toBe("ok");
+    expect(c2.getSnapshot().data?.groups.map((g) => g.name)).toEqual(
+      expect.arrayContaining(["Mail", "Social"]),
+    );
+  });
+
+  it("still unlocks when the upgrade cannot be written", async () => {
+    const old = makeOld();
+    await old.load();
+    await old.create("pin", "123456");
+    const c = make();
+    await c.load();
+    store.failWrite = true;
+    expect(await c.unlock("123456")).toBe("ok");
+    expect(storedKdf()).toEqual(OLD);
+  });
+
+  it("a wrong secret does not touch the stored vault", async () => {
+    const old = makeOld();
+    await old.load();
+    await old.create("pin", "123456");
+    const before = store.raw;
+    const c = make();
+    await c.load();
+    expect(await c.unlock("000000")).toBe("wrong");
+    expect(store.raw).toBe(before);
+  });
+});

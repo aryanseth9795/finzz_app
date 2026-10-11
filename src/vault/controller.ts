@@ -201,11 +201,37 @@ export class VaultController {
     return this.exclusive(async () => {
       const r = await this.tryOpen(secret);
       if (typeof r === "string") return r;
+      const opened = await this.upgradeKdf(secret, r);
       // Locked (e.g. app backgrounded) while deriving: stay locked.
       if (epoch !== this.epoch) return "cancelled";
-      this.commitUnlocked(r.key, r.env, r.data);
+      this.commitUnlocked(opened.key, opened.env, opened.data);
       return "ok";
     });
+  }
+
+  /**
+   * A vault sealed with other KDF params (e.g. the old, slower default) is
+   * re-sealed with the current ones, so later unlocks use them. Best effort:
+   * if the write fails, the vault stays as it was and still opens.
+   */
+  private async upgradeKdf(
+    secret: string,
+    r: { key: Uint8Array; data: VaultData; env: VaultEnvelope },
+  ): Promise<{ key: Uint8Array; data: VaultData; env: VaultEnvelope }> {
+    const { N, r: blockSize, p } = r.env.kdf;
+    if (N === this.kdf.N && blockSize === this.kdf.r && p === this.kdf.p) return r;
+    try {
+      const device = await this.store.readDeviceSecret();
+      if (!device) return r;
+      const header = createHeader(r.env.secretType, this.rand, this.kdf);
+      const key = await deriveKey(secret, device, header);
+      const env = sealVault(r.data, key, header, this.rand);
+      await this.store.writeRaw(JSON.stringify(env));
+      this.env = env;
+      return { key, data: r.data, env };
+    } catch {
+      return r;
+    }
   }
 
   /** Persist first, then show: a failed write never looks saved. */
