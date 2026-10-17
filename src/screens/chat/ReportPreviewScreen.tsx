@@ -21,7 +21,33 @@ import { SafeAreaWrapper } from "../../components/ui";
 import { getChatExportHtmlApi } from "../../api/statsApi";
 import { describeError } from "../../api/axios";
 import { logger } from "../../utils/logger";
-import { parseExportResponse, PDF_SHARE_OPTIONS, ParsedExport } from "../../utils/report";
+import {
+  isStaleReportFile,
+  parseExportResponse,
+  PDF_SHARE_OPTIONS,
+  ParsedExport,
+} from "../../utils/report";
+
+// iOS ignores the @page margins in the report CSS, so give printToFileAsync
+// explicit ones (points).
+const IOS_PDF_MARGINS = { top: 36, right: 36, bottom: 36, left: 36 };
+
+// The shared PDF can't be deleted right after sharing (Android targets such as
+// Drive / Nearby Share read the file later), so stale ones are swept instead.
+const sweepStaleReports = async (): Promise<void> => {
+  try {
+    const base = FileSystem.cacheDirectory;
+    if (!base) return;
+    const names = await FileSystem.readDirectoryAsync(base);
+    await Promise.all(
+      names.filter(isStaleReportFile).map((name) =>
+        FileSystem.deleteAsync(`${base}${name}`, { idempotent: true }).catch(() => undefined),
+      ),
+    );
+  } catch {
+    // best-effort cleanup
+  }
+};
 
 type LoadState =
   | { status: "loading" }
@@ -46,8 +72,10 @@ const ReportPreviewScreen = ({ route, navigation }: any) => {
 
   useEffect(() => {
     mountedRef.current = true;
+    sweepStaleReports();
     return () => {
       mountedRef.current = false;
+      sweepStaleReports();
     };
   }, []);
 
@@ -72,16 +100,34 @@ const ReportPreviewScreen = ({ route, navigation }: any) => {
 
   const report = state.status === "ready" ? state.report : null;
 
+  // Only the initial HTML load and about:blank may load; any link or redirect
+  // is refused rather than handed to Linking.
+  const initialLoadAllowedRef = useRef(true);
+  useEffect(() => {
+    initialLoadAllowedRef.current = true;
+  }, [report]);
+  const allowRequest = useCallback((req: { url: string }) => {
+    if (req.url === "about:blank") return true;
+    if (initialLoadAllowedRef.current) {
+      initialLoadAllowedRef.current = false;
+      return true;
+    }
+    return false;
+  }, []);
+
   const handleShare = async () => {
     if (!report || busyRef.current) return;
     busyRef.current = true;
     setBusy("share");
     let tempUri: string | null = null;
+    let shared = false;
     try {
+      await sweepStaleReports();
       const { uri } = await Print.printToFileAsync({
         html: report.html,
         width: 595,
         height: 842,
+        ...(Platform.OS === "ios" ? { margins: IOS_PDF_MARGINS } : {}),
       });
       tempUri = uri;
 
@@ -98,11 +144,14 @@ const ReportPreviewScreen = ({ route, navigation }: any) => {
         return;
       }
       await Sharing.shareAsync(tempUri, PDF_SHARE_OPTIONS);
+      shared = true;
     } catch (error) {
       logger.error("Failed to share report", error);
       Alert.alert("Couldn't share the report", describeError(error));
     } finally {
-      if (tempUri) {
+      // Keep the file once it has been handed to the share sheet; the sweep
+      // removes it later. Delete immediately only when sharing never happened.
+      if (tempUri && !shared) {
         try {
           await FileSystem.deleteAsync(tempUri, { idempotent: true });
         } catch {
@@ -210,8 +259,10 @@ const ReportPreviewScreen = ({ route, navigation }: any) => {
             source={{ html: report.html }}
             originWhitelist={["about:blank"]}
             javaScriptEnabled={false}
-            onShouldStartLoadWithRequest={(r) => r.url === "about:blank"}
+            dataDetectorTypes="none"
+            allowsLinkPreview={false}
             setSupportMultipleWindows={false}
+            onShouldStartLoadWithRequest={allowRequest}
             scalesPageToFit={Platform.OS === "android"}
             style={styles.webview}
           />

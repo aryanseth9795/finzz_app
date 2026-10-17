@@ -2,9 +2,25 @@ import { describe, it, expect } from "vitest";
 import {
   MONTH_SHORT_EN,
   PDF_SHARE_OPTIONS,
+  isStaleReportFile,
   parseExportResponse,
   reportFileName,
 } from "./report";
+
+describe("isStaleReportFile", () => {
+  it("matches generated report files", () => {
+    expect(isStaleReportFile("Finzz-Summer-Oct-2026.pdf")).toBe(true);
+    expect(isStaleReportFile("Finzz-.pdf")).toBe(true);
+  });
+
+  it("rejects everything else", () => {
+    expect(isStaleReportFile("Print-1234.pdf")).toBe(false);
+    expect(isStaleReportFile("Finzz-Summer.png")).toBe(false);
+    expect(isStaleReportFile("Finzz-Summer.pdf.tmp")).toBe(false);
+    expect(isStaleReportFile("my-Finzz-Summer.pdf")).toBe(false);
+    expect(isStaleReportFile("")).toBe(false);
+  });
+});
 
 describe("MONTH_SHORT_EN", () => {
   it("has 12 short names", () => {

@@ -14,7 +14,7 @@ const LABEL_MAX = 60;
 
 // Invalid file-name chars, control chars, emoji / astral symbols and joiners.
 // eslint-disable-next-line no-control-regex
-const INVALID_CHARS = /[\/:*?"<>|\u0000-\u001f\u007f-\u009f\uD800-\uDFFF​-‍☀-➿️]/g;
+const INVALID_CHARS = /[\/:*?"<>|\u0000-\u001f\u007f-\u009f\uD800-\uDFFF\u200B-\u200D\u2600-\u27BF\uFE0F]/g;
 
 const sanitizePart = (raw: string, max: number): string => {
   const cleaned = raw
@@ -36,6 +36,10 @@ export const reportFileName = (
   const mon = MONTH_SHORT_EN[month - 1] ?? String(month);
   return `Finzz-${name}-${mon}-${year}.pdf`;
 };
+
+// Temp PDFs written by the share flow; swept from the cache directory because
+// they cannot be deleted right after sharing (Android targets read lazily).
+export const isStaleReportFile = (name: string): boolean => /^Finzz-.*\.pdf$/.test(name);
 
 export const PDF_SHARE_OPTIONS: {
   mimeType: "application/pdf";
