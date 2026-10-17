@@ -26,6 +26,7 @@ import ExpenseScreen from "../screens/expense/ExpenseScreen";
 import AddEditExpenseScreen from "../screens/expense/AddEditExpenseScreen";
 import ExpenseStatsScreen from "../screens/expense/ExpenseStatsScreen";
 import VaultStackNavigator from "./VaultStack";
+import NotesStackNavigator from "./NotesStack";
 
 const ChatsStack = createNativeStackNavigator();
 
@@ -144,6 +145,9 @@ const MainTabs = () => {
             case "Expenses":
               iconName = focused ? "wallet" : "wallet-outline";
               break;
+            case "Notes":
+              iconName = focused ? "document-text" : "document-text-outline";
+              break;
             case "Vault":
               iconName = focused ? "lock-closed" : "lock-closed-outline";
               break;
@@ -173,6 +177,7 @@ const MainTabs = () => {
       <Tab.Screen name="Chats" component={ChatsStackNavigator} />
       <Tab.Screen name="Pool" component={PoolStackNavigator} />
       <Tab.Screen name="Expenses" component={ExpenseStackNavigator} />
+      <Tab.Screen name="Notes" component={NotesStackNavigator} />
       <Tab.Screen name="Vault" component={VaultStackNavigator} />
     </Tab.Navigator>
   );
