@@ -15,7 +15,13 @@ const Stack = createNativeStackNavigator<NotesStackParamList>();
 const NotesStackNavigator = () => (
   <Stack.Navigator screenOptions={{ headerShown: false, animation: "slide_from_right" }}>
     <Stack.Screen name="NotesHome" component={NotesHomeScreen} />
-    <Stack.Screen name="NoteEditor" component={NoteEditorScreen} />
+    <Stack.Screen
+      name="NoteEditor"
+      component={NoteEditorScreen}
+      // A different noteId pushes a new editor instead of rewriting the params
+      // of the focused one (which would trample an unsaved draft).
+      getId={({ params }) => params?.noteId}
+    />
     <Stack.Screen name="NoteShare" component={NoteShareScreen} />
   </Stack.Navigator>
 );

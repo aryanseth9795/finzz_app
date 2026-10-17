@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  shouldIgnoreRouteNoteId,
   NOTE_TITLE_MAX,
   NOTE_BODY_MAX,
   noteDisplayTitle,
@@ -275,5 +276,20 @@ describe("sameNotesFilter", () => {
   });
   it("differs by q", () => {
     expect(sameNotesFilter(base, { ...base, q: "x" })).toBe(false);
+  });
+});
+
+describe("shouldIgnoreRouteNoteId — a push must not swap the note under an open editor", () => {
+  it("accepts the first id while the screen has not claimed a note", () => {
+    expect(shouldIgnoreRouteNoteId(undefined, "a")).toBe(false);
+  });
+  it("ignores a different id once a note is loaded", () => {
+    expect(shouldIgnoreRouteNoteId("a", "b")).toBe(true);
+  });
+  it("accepts the id the screen already owns", () => {
+    expect(shouldIgnoreRouteNoteId("a", "a")).toBe(false);
+  });
+  it("ignores a foreign id while a new draft is open", () => {
+    expect(shouldIgnoreRouteNoteId(null, "b")).toBe(true);
   });
 });

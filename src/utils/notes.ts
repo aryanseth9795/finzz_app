@@ -174,3 +174,18 @@ type NotesFilter = { scope: NoteScope; label: string | null; q: string };
 
 export const sameNotesFilter = (a: NotesFilter, b: NotesFilter): boolean =>
   a.scope === b.scope && a.label === b.label && a.q === b.q;
+
+/**
+ * Should a change of `route.params.noteId` be ignored?
+ *
+ * `owned`: undefined = this screen has not claimed a note yet (still loading
+ * the first one); null = a new, unsaved draft; string = the note this screen
+ * is editing (loaded, or created by its own first save). Once claimed, a
+ * different incoming id (e.g. a push tap routed here) must not replace the
+ * draft. Our own setParams after the first save carries the id we already
+ * claimed, so it is not ignored.
+ */
+export const shouldIgnoreRouteNoteId = (
+  owned: string | null | undefined,
+  incoming: string | undefined,
+): boolean => owned !== undefined && incoming !== owned;

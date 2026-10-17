@@ -32,9 +32,10 @@ import {
   deleteNoteApi,
   revokeNoteShareApi,
 } from "../../api/notesApi";
-import { useAppDispatch, useAppSelector } from "../../store";
+import { store, useAppDispatch, useAppSelector } from "../../store";
 import { upsertNote, removeNote } from "../../store/slices/notesSlice";
 import {
+  shouldIgnoreRouteNoteId,
   NOTE_TITLE_MAX,
   NOTE_BODY_MAX,
   canEditNote,
@@ -51,10 +52,17 @@ import type { IFriend, INote, INotePerson, NoteRole } from "../../types";
 const LABEL_HINT = "Labels are only visible to you. They don't share the note.";
 const ICON_BTN = 36;
 
-type Status = "loading" | "error" | "ready";
+// "gone" = the note no longer exists / is no longer shared. It exists so a
+// stranded editor (opened straight from a push, nothing to go back to) never
+// sits on the loading spinner if navigating away fails.
+type Status = "loading" | "error" | "ready" | "gone";
 
 /** The counter only appears once a field is within 10% of its limit. */
 const nearLimit = (length: number, max: number) => length >= max * 0.9;
+
+/** True while the logged-in account is still the one this screen was opened by. */
+const sameSession = (uid: string): boolean =>
+  !!uid && store.getState().auth.user?._id === uid;
 
 const NoteEditorScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
@@ -63,7 +71,18 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
   const dispatch = useAppDispatch();
   const me = useAppSelector((s) => s.auth.user?._id) ?? "";
 
-  const routeNoteId: string | undefined = route.params?.noteId;
+  const paramNoteId: string | undefined = route.params?.noteId;
+  // The note this screen owns (see shouldIgnoreRouteNoteId). A new draft owns
+  // `null` from the start; an id screen claims its note once it has loaded.
+  const ownedIdRef = useRef<string | null | undefined>(
+    paramNoteId ? undefined : null,
+  );
+  const routeNoteId: string | undefined = shouldIgnoreRouteNoteId(
+    ownedIdRef.current,
+    paramNoteId,
+  )
+    ? (ownedIdRef.current ?? undefined)
+    : paramNoteId;
 
   // Role hint from the list row, used only when the full note failed to load.
   const listRole = useAppSelector((s) =>
@@ -91,6 +110,9 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
   const pendingActionRef = useRef<any>(null);
 
   const mountedRef = useRef(true);
+  // Account this screen was opened by. A save/load that resolves after logout
+  // must not write into the freshly reset store (the next account would see it).
+  const sessionUidRef = useRef(me);
   const savingRef = useRef(false);
   const busyRef = useRef(false); // delete / leave / label in flight
   const friendsStateRef = useRef<"idle" | "loading" | "loaded">("idle");
@@ -140,13 +162,25 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
   });
 
   // Declared after usePreventRemove so its effect has run for the new value.
+  /**
+   * Go back, or, when this editor is the only route in the Notes stack (opened
+   * straight from a push), replace it with the list. `navigation.canGoBack()`
+   * is not usable here: it also reports true when only a parent navigator (the
+   * tabs) can go back, and GO_BACK would then bubble up and jump to Chats.
+   */
+  const exit = useCallback(() => {
+    const st = navigation.getState?.();
+    if ((st?.index ?? 0) > 0) navigation.goBack();
+    else navigation.replace("NotesHome");
+  }, [navigation]);
+
   useEffect(() => {
     if (!leaving) return;
     const action = pendingActionRef.current;
     pendingActionRef.current = null;
     if (action) navigation.dispatch(action);
-    else navigation.goBack();
-  }, [leaving, navigation]);
+    else exit();
+  }, [leaving, navigation, exit]);
 
   const leave = useCallback(() => {
     pendingActionRef.current = null;
@@ -161,7 +195,10 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
           : "This note is no longer shared with you",
       );
       const id = noteRef.current?._id ?? routeNoteId;
-      if (id) dispatch(removeNote(id));
+      if (id && sameSession(sessionUidRef.current)) dispatch(removeNote(id));
+      // Never leave the screen on a spinner, even if navigation fails.
+      reqRef.current++; // drop any load still in flight
+      if (mountedRef.current) setStatus("gone");
       leave();
     },
     [dispatch, leave, routeNoteId, showErrorToast],
@@ -193,6 +230,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
       if (!mountedRef.current || req !== reqRef.current) return;
       const n: INote = res.data.note;
       loadedRef.current = true;
+      ownedIdRef.current = n._id;
       setNote(n);
       setTitle(n.title);
       setBody(n.body);
@@ -250,7 +288,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
             setTitle(fresh.title);
             setBody(fresh.body);
           }
-          dispatch(upsertNote(fresh));
+          if (sameSession(sessionUidRef.current)) dispatch(upsertNote(fresh));
         } catch (e) {
           if (!mountedRef.current || req !== reqRef.current) return;
           // A failed background refresh is only worth surfacing when access is gone.
@@ -280,14 +318,23 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
               personLabel: newLabel?._id ?? null,
             });
         const savedNote: INote = res.data.note;
-        dispatch(upsertNote(savedNote));
+        // Not gated on mountedRef: leaving mid-save must still refresh the
+        // list. Gated on the session so a save finishing after logout cannot
+        // leak into the next account.
+        if (sameSession(sessionUidRef.current)) dispatch(upsertNote(savedNote));
         if (!mountedRef.current) return;
         setNote(savedNote);
         // Adopt any normalisation the server applied, unless the user has
         // already typed something else while the request was in flight.
         if (draftRef.current.title === t) setTitle(savedNote.title);
         if (draftRef.current.body === b) setBody(savedNote.body);
-        if (!base) navigation.setParams({ noteId: savedNote._id });
+        if (!base) {
+          // Claim the id first so our own setParams is not mistaken for a
+          // foreign one. setParams targets this route's key, so the screen is
+          // not remounted and getId only matters for later NAVIGATE/PUSH.
+          ownedIdRef.current = savedNote._id;
+          navigation.setParams({ noteId: savedNote._id });
+        }
         loadedRef.current = true;
         showSuccessToast("Saved");
       } catch (e) {
@@ -321,7 +368,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
         {
           text: "Load theirs",
           onPress: () => {
-            dispatch(upsertNote(latest));
+            if (sameSession(sessionUidRef.current)) dispatch(upsertNote(latest));
             if (!mountedRef.current) return;
             setNote(latest);
             setTitle(latest.title);
@@ -390,7 +437,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
     try {
       const res = await setNoteLabelApi(note._id, id);
       const updated: INote = res.data.note;
-      dispatch(upsertNote(updated));
+      if (sameSession(sessionUidRef.current)) dispatch(upsertNote(updated));
       if (!mountedRef.current) return;
       // Metadata only: the draft and the baseline text/version stay as they are.
       setNote((prev) =>
@@ -410,7 +457,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
     busyRef.current = true;
     try {
       await deleteNoteApi(note._id);
-      dispatch(removeNote(note._id));
+      if (sameSession(sessionUidRef.current)) dispatch(removeNote(note._id));
       if (!mountedRef.current) return;
       showSuccessToast("Note deleted");
       leave();
@@ -426,7 +473,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
     busyRef.current = true;
     try {
       await revokeNoteShareApi(note._id, me);
-      dispatch(removeNote(note._id));
+      if (sameSession(sessionUidRef.current)) dispatch(removeNote(note._id));
       if (!mountedRef.current) return;
       showSuccessToast("Removed from your notes");
       leave();
@@ -489,7 +536,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
 
   const backButton = (
     <TouchableOpacity
-      onPress={() => navigation.goBack()}
+      onPress={exit}
       style={styles.backButton}
       accessibilityRole="button"
       accessibilityLabel="Go back"
@@ -511,7 +558,33 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
           <View style={{ width: ICON_BTN }} />
         </View>
         <View style={styles.center}>
-          {status === "error" ? (
+          {status === "gone" ? (
+            <>
+              <Ionicons
+                name="document-outline"
+                size={44}
+                color={colors.textTertiary}
+              />
+              <Text
+                style={[
+                  styles.centerText,
+                  { color: colors.textSecondary, fontSize: fs.md },
+                ]}
+              >
+                This note is no longer available.
+              </Text>
+              <TouchableOpacity
+                onPress={exit}
+                style={[styles.retryButton, { backgroundColor: colors.primary }]}
+                accessibilityRole="button"
+                accessibilityLabel="Back to notes"
+              >
+                <Text style={{ color: "#fff", fontWeight: "600", fontSize: fs.md }}>
+                  Back to notes
+                </Text>
+              </TouchableOpacity>
+            </>
+          ) : status === "error" ? (
             <>
               <Ionicons
                 name="cloud-offline-outline"
