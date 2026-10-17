@@ -63,17 +63,18 @@ const MonthSelector: React.FC<MonthSelectorProps> = ({
 
   const closeSheet = useCallback(() => setSheetOpen(false), []);
 
+  const tick = useCallback(() => {
+    // Haptics may be unavailable; selectionAsync rejects asynchronously.
+    void Haptics.selectionAsync().catch(() => {});
+  }, []);
+
   const handlePick = useCallback(
     (year: number, month: number) => {
-      try {
-        void Haptics.selectionAsync();
-      } catch {
-        // haptics unavailable; ignore
-      }
+      tick();
       setSheetOpen(false);
       onChange({ year, month });
     },
-    [onChange],
+    [onChange, tick],
   );
 
   const renderArrow = (
@@ -87,9 +88,11 @@ const MonthSelector: React.FC<MonthSelectorProps> = ({
         accessibilityLabel={dir === "prev" ? "Previous month" : "Next month"}
         accessibilityState={{ disabled }}
         disabled={disabled}
-        onPress={() =>
-          target && onChange({ year: target.year, month: target.month })
-        }
+        onPress={() => {
+          if (!target) return;
+          tick();
+          onChange({ year: target.year, month: target.month });
+        }}
         style={({ pressed }) => [
           styles.arrow,
           {
@@ -125,7 +128,7 @@ const MonthSelector: React.FC<MonthSelectorProps> = ({
 
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Choose month"
+          accessibilityLabel={`Choose month, ${monthLabel(selected, "long")}, ${caption}`}
           onPress={() => setSheetOpen(true)}
           style={({ pressed }) => [
             styles.center,
@@ -171,10 +174,13 @@ const MonthSelector: React.FC<MonthSelectorProps> = ({
         onRequestClose={closeSheet}
       >
         <Pressable
+          accessible={false}
           style={[styles.overlay, { backgroundColor: colors.overlay }]}
           onPress={closeSheet}
         >
           <Pressable
+            accessible={false}
+            accessibilityViewIsModal
             style={[
               styles.sheet,
               {
@@ -237,10 +243,14 @@ const MonthSelector: React.FC<MonthSelectorProps> = ({
                           <Pressable
                             disabled={!cell.enabled}
                             accessibilityRole="button"
-                            accessibilityLabel={monthLabel(
+                            accessibilityLabel={`${monthLabel(
                               { year, month: cell.month },
                               "long",
-                            )}
+                            )}${
+                              cell.enabled && cell.count > 0
+                                ? `, ${cell.count} transaction${cell.count === 1 ? "" : "s"}`
+                                : ""
+                            }${cell.isCurrent ? ", current month" : ""}`}
                             accessibilityState={{
                               disabled: !cell.enabled,
                               selected: isSelected,

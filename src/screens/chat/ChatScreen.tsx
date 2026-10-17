@@ -31,6 +31,7 @@ import {
   setTxLoading,
   removeTx,
   updateTx,
+  resetChat,
 } from "../../store/slices/chatSlice";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { CACHE_DURATION } from "../../constants/api";
@@ -71,6 +72,8 @@ const ChatScreen = ({ route, navigation }: any) => {
   );
   // Bumped on every month change; a response carrying an older id is dropped.
   const requestIdRef = useRef(0);
+  // True when the totals request for the selected month failed.
+  const [statsError, setStatsError] = useState(false);
   const hasFocusedRef = useRef(false);
 
   // Rejection modal state
@@ -140,6 +143,7 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   const fetchStats = useCallback(async () => {
     const requestId = requestIdRef.current;
+    setStatsError(false);
     try {
       const response = await getChatStatsApi(
         chatId,
@@ -151,6 +155,7 @@ const ChatScreen = ({ route, navigation }: any) => {
       dispatch(setStats(backendStats));
     } catch (error) {
       logger.error("Failed to fetch stats:", error);
+      if (requestId === requestIdRef.current) setStatsError(true);
     }
   }, [chatId, dispatch, selectedYear, selectedMonth]);
 
@@ -164,10 +169,20 @@ const ChatScreen = ({ route, navigation }: any) => {
   }, [chatId]);
 
   // Single month-driven load path (runs on mount and on every month change).
+  // The transactions/stats slices are global, so clear whatever another chat
+  // left behind before this chat's first fetch (declared first = runs first).
+  useEffect(() => {
+    dispatch(resetChat());
+  }, [dispatch]);
+
   useEffect(() => {
     requestIdRef.current += 1;
     fetchTransactions();
     fetchStats();
+    // Invalidate in-flight responses on month change and on unmount.
+    return () => {
+      requestIdRef.current += 1;
+    };
   }, [fetchTransactions, fetchStats]);
 
   // Always-current fetchers for the focus effect, so a month change does not
@@ -196,6 +211,7 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   const handleLoadMore = async () => {
     if (!hasMore || loadingMore || !nextCursor) return;
+    const requestId = requestIdRef.current;
     setLoadingMore(true);
     try {
       const response = await getTxnsApi(
@@ -204,6 +220,7 @@ const ChatScreen = ({ route, navigation }: any) => {
         selectedYear,
         selectedMonth,
       );
+      if (requestId !== requestIdRef.current) return;
       const data = response.data;
       dispatch(
         appendTransactions({
@@ -339,21 +356,21 @@ const ChatScreen = ({ route, navigation }: any) => {
   };
 
   const renderStatsBar = () => {
-    if (!stats || !user?._id) return null;
+    if ((!stats && !statsError) || !user?._id) return null;
 
     // Stats of a previously selected month stay in the store until the new
     // response lands; never show them under the newly selected month.
-    const isFresh = isStatsForMonth(stats, {
+    const isFresh = !!stats && isStatsForMonth(stats, {
       year: selectedYear,
       month: selectedMonth,
     });
-    const myStats = isFresh ? stats.members?.[user._id] : undefined;
+    const myStats = isFresh ? stats?.members?.[user._id] : undefined;
     if (isFresh && !myStats) return null;
 
     // Backend carryForward = Received - Sent (Positive = You Owe)
     // We want Positive = You Receive (Sent - Received)
     // So we subtract the backend carryForward.
-    const carryForward = stats.carryForward?.[user._id] || 0;
+    const carryForward = stats?.carryForward?.[user._id] || 0;
     const totalSent = myStats?.totalSent ?? 0;
     const totalReceived = myStats?.totalReceived ?? 0;
     const currentMonthNet = totalSent - totalReceived;
@@ -444,7 +461,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                 >
                   {isFresh ? `₹${Math.abs(totalNet).toLocaleString("en-IN")}` : "—"}
                 </Text>
-                {!isFresh && (
+                {!isFresh && !statsError && (
                   <ActivityIndicator
                     size="small"
                     color={colors.textSecondary}
@@ -467,7 +484,9 @@ const ChatScreen = ({ route, navigation }: any) => {
                 ]}
               >
                 {!isFresh
-                  ? " "
+                  ? statsError
+                    ? "Couldn't load totals · Pull to refresh"
+                    : " "
                   : totalNet === 0
                     ? "Settled"
                     : totalNet > 0
