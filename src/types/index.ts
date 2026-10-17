@@ -305,6 +305,13 @@ export interface IAdvancedExpenseStats {
     date: string;
     remarks: string;
     category: string;
+    /** Present on newer servers. */
+    type?: "debit" | "credit";
+  }>;
+  /** Present on newer servers: 3 monthly points for each of the top categories. */
+  categoryTrend?: Array<{
+    name: string;
+    months: Array<{ month: string; total: number }>;
   }>;
 }
 
