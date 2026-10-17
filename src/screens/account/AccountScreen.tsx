@@ -26,6 +26,7 @@ import { cacheManager } from "../../utils/cacheManager";
 import {
   clearPushRegistrationState,
   getCurrentPushToken,
+  waitForPushRegistrationIdle,
 } from "../../hooks/useNotifications";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
@@ -98,6 +99,10 @@ const AccountScreen = ({ navigation }: any) => {
            * user must still end up signed out on this device, and the server
            * grant expires on its own.
            */
+          // Let any in-flight push registration finish first, so a late upload
+          // cannot re-attach this token to the account being signed out.
+          await waitForPushRegistrationIdle();
+
           const [refreshToken, pushToken] = await Promise.all([
             tokenManager.getRefreshToken(),
             getCurrentPushToken(),

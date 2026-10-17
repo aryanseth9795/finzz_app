@@ -3,7 +3,7 @@ import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
 import { AppState, Platform } from "react-native";
-import { updatePushTokenApi } from "../api/authApi";
+import { reportPushStatusApi, updatePushTokenApi } from "../api/authApi";
 import { useAppSelector } from "../store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
@@ -15,6 +15,8 @@ import { logger } from "../utils/logger";
 import {
   describeOutcome,
   isValidExpoToken,
+  shouldIgnoreRotation,
+  shouldReportOutcome,
   shouldUploadToken,
   type PushRegistrationOutcome,
 } from "../utils/pushRegistration";
@@ -78,7 +80,25 @@ const FOREGROUND_THROTTLE_MS = 10 * 60 * 1000;
 
 let lastForegroundRunAt = 0;
 let askedAgainThisSession = false;
-let inFlight: Promise<PushRegistrationOutcome> | null = null;
+
+/** The shared registration run: one per user, so accounts never share a result. */
+interface InFlightRun {
+  userId: string;
+  force: boolean;
+  promise: Promise<PushRegistrationOutcome>;
+}
+let inFlight: InFlightRun | null = null;
+
+/** When the last run settled (0 = none yet); drives the rotation debounce. */
+let lastRunCompletedAt = 0;
+
+/** Outcomes already reported to the server this app session. */
+const reportedOutcomes = new Set<PushRegistrationOutcome>();
+/** Error text of the latest non-success outcome (runs are serialized). */
+let lastDetail: string | undefined;
+
+/** Upper bound on how long sign-out waits for a registration run. */
+const IDLE_WAIT_TIMEOUT_MS = 8000;
 
 export function useNotifications() {
   // Depend on the ID, not the object.
@@ -99,6 +119,9 @@ export function useNotifications() {
   useEffect(() => {
     if (!userId) return;
 
+    // The initial run counts as a foreground run, so an immediate "active"
+    // event does not start a second one.
+    lastForegroundRunAt = Date.now();
     void registerForPushNotificationsAsync(userId);
 
     // Re-run when the app returns to the foreground (throttled): picks up a
@@ -112,9 +135,11 @@ export function useNotifications() {
     });
 
     // The device token rotated (FCM refresh): fetch the Expo token again and
-    // upload it. Not throttled, because the token really changed.
+    // upload it. Not throttled and never skipped as "unchanged" (the token
+    // really changed); duplicate events right after a run are dropped.
     const tokenSub = Notifications.addPushTokenListener(() => {
-      void registerForPushNotificationsAsync(userId);
+      if (shouldIgnoreRotation(lastRunCompletedAt, Date.now())) return;
+      void registerForPushNotificationsAsync(userId, { force: true });
     });
 
     notificationListener.current =
@@ -176,6 +201,7 @@ const report = (
   error?: unknown,
 ): PushRegistrationOutcome => {
   if (outcome !== "registered" && outcome !== "unchanged") {
+    lastDetail = error === undefined ? undefined : errMsg(error);
     logger.warn(
       `[push] ${outcome}: ${describeOutcome(outcome)}`,
       error === undefined ? "" : errMsg(error),
@@ -196,21 +222,84 @@ export async function clearPushRegistrationState(): Promise<void> {
   ]).catch(() => undefined);
 }
 
-/** Concurrent triggers (login + foreground + rotation) share one run. */
+/**
+ * Tell the server how registration ended, best effort. Once per outcome per
+ * app session; failures are ignored.
+ */
+function reportToServer(outcome: PushRegistrationOutcome): void {
+  if (!shouldReportOutcome(reportedOutcomes, outcome)) return;
+  const detail = outcome === "registered" ? undefined : lastDetail;
+  void Promise.resolve()
+    .then(() => reportPushStatusApi(outcome, detail?.slice(0, 200)))
+    .catch(() => undefined);
+}
+
+/**
+ * Concurrent triggers (login + foreground + rotation) for the same user share
+ * one run. A different user (or a forced run while a normal one is in
+ * flight, which may already have read the old token) starts a fresh run once
+ * the current one settles.
+ */
 export function registerForPushNotificationsAsync(
   userId: string,
+  opts: { force?: boolean } = {},
 ): Promise<PushRegistrationOutcome> {
-  if (inFlight) return inFlight;
-  inFlight = runRegistration(userId)
-    .catch((e) => report("token-error", e))
+  const force = opts.force === true;
+  const current = inFlight;
+  if (current && current.userId === userId && (current.force || !force)) {
+    return current.promise;
+  }
+
+  const start = (): Promise<PushRegistrationOutcome> => {
+    lastDetail = undefined;
+    return runRegistration(userId, force).catch((e) =>
+      report("token-error", e),
+    );
+  };
+  const promise: Promise<PushRegistrationOutcome> = (
+    current ? current.promise.then(start, start) : start()
+  )
+    .then((outcome) => {
+      reportToServer(outcome);
+      return outcome;
+    })
     .finally(() => {
-      inFlight = null;
+      lastRunCompletedAt = Date.now();
+      if (inFlight === run) inFlight = null;
     });
-  return inFlight;
+  const run: InFlightRun = { userId, force, promise };
+  inFlight = run;
+  return promise;
+}
+
+/**
+ * Resolves once no registration run is in flight (or after a short timeout,
+ * so sign-out is never stuck behind a hung token fetch). Await before sign-out
+ * so a late upload cannot re-attach the token to the signed-out account.
+ */
+export async function waitForPushRegistrationIdle(
+  timeoutMs: number = IDLE_WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (inFlight) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, remaining);
+    });
+    const settled = inFlight.promise.then(
+      () => undefined,
+      () => undefined,
+    );
+    await Promise.race([settled, timeout]);
+    if (timer) clearTimeout(timer);
+  }
 }
 
 async function runRegistration(
   userId: string,
+  force: boolean,
 ): Promise<PushRegistrationOutcome> {
   if (!Device.isDevice) return report("not-a-device");
 
@@ -227,6 +316,9 @@ async function runRegistration(
 
   let perm = await Notifications.getPermissionsAsync();
   if (perm.status === "undetermined") {
+    // Android 13 can report "denied" + canAskAgain right after the user
+    // declines this prompt; count it so we do not ask again this session.
+    askedAgainThisSession = true;
     perm = await Notifications.requestPermissionsAsync();
   } else if (
     perm.status === "denied" &&
@@ -261,6 +353,7 @@ async function runRegistration(
 
   const now = Date.now();
   if (
+    !force &&
     !shouldUploadToken(
       token,
       sameUser ? lastToken : null,

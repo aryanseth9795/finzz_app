@@ -17,7 +17,11 @@ export type PushRegistrationOutcome =
   | "token-error"
   | "upload-error";
 
-const DEFAULT_MAX_AGE_MS = 7 * 24 * 3600e3;
+/**
+ * How long an upload stays fresh. Kept at 24 h so a token the server pruned
+ * (or never stored) is healed on the next foreground within a day.
+ */
+const DEFAULT_MAX_AGE_MS = 24 * 3600e3;
 
 /**
  * Whether the current token should be sent to the server: it changed, was
@@ -36,6 +40,38 @@ export const shouldUploadToken = (
   if (lastUploadAt === null || !Number.isFinite(lastUploadAt)) return true;
   const age = now - lastUploadAt;
   return age < 0 || age > maxAgeMs;
+};
+
+/** Token-rotation events this soon after a finished run are duplicates. */
+export const ROTATION_DEBOUNCE_MS = 5000;
+
+/**
+ * Whether a token-rotation event should be dropped because a registration run
+ * finished moments ago (`lastRunCompletedAt` is 0 when none has). A timestamp
+ * in the future (clock change) never suppresses.
+ */
+export const shouldIgnoreRotation = (
+  lastRunCompletedAt: number,
+  now: number,
+  windowMs: number = ROTATION_DEBOUNCE_MS,
+): boolean => {
+  if (!lastRunCompletedAt) return false;
+  const since = now - lastRunCompletedAt;
+  return since >= 0 && since < windowMs;
+};
+
+/**
+ * Whether an outcome should be reported to the server: once per outcome per
+ * app session ("unchanged" is never reported). Records the outcome in `seen`
+ * when it returns true.
+ */
+export const shouldReportOutcome = (
+  seen: Set<PushRegistrationOutcome>,
+  outcome: PushRegistrationOutcome,
+): boolean => {
+  if (outcome === "unchanged" || seen.has(outcome)) return false;
+  seen.add(outcome);
+  return true;
 };
 
 const EXPO_TOKEN_RE = /^Expo(nent)?PushToken\[.+\]$/;

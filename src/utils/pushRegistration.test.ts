@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   shouldUploadToken,
+  shouldIgnoreRotation,
+  shouldReportOutcome,
   isValidExpoToken,
   describeOutcome,
   type PushRegistrationOutcome,
 } from "./pushRegistration";
 
-const DAY = 24 * 3600e3;
+const HOUR = 3600e3;
+const DAY = 24 * HOUR;
 const NOW = 1_800_000_000_000;
 const TOKEN = "ExponentPushToken[abc123]";
 
@@ -23,12 +26,14 @@ describe("shouldUploadToken", () => {
     expect(shouldUploadToken(TOKEN, TOKEN, null, NOW)).toBe(true);
   });
 
-  it("uploads when the last upload is older than the max age", () => {
-    expect(shouldUploadToken(TOKEN, TOKEN, NOW - 8 * DAY, NOW)).toBe(true);
+  it("uploads when the last upload is older than the 24 h default max age", () => {
+    expect(shouldUploadToken(TOKEN, TOKEN, NOW - 25 * HOUR, NOW)).toBe(true);
+    expect(shouldUploadToken(TOKEN, TOKEN, NOW - 2 * DAY, NOW)).toBe(true);
   });
 
-  it("does not upload when the token is the same and the upload is fresh", () => {
-    expect(shouldUploadToken(TOKEN, TOKEN, NOW - 1 * DAY, NOW)).toBe(false);
+  it("does not upload when the token is the same and the upload is fresh (< 24 h)", () => {
+    expect(shouldUploadToken(TOKEN, TOKEN, NOW - 23 * HOUR, NOW)).toBe(false);
+    expect(shouldUploadToken(TOKEN, TOKEN, NOW - 1 * HOUR, NOW)).toBe(false);
   });
 
   it("honours a custom max age", () => {
@@ -42,6 +47,42 @@ describe("shouldUploadToken", () => {
 
   it("treats a clock that went backwards as stale", () => {
     expect(shouldUploadToken(TOKEN, TOKEN, NOW + DAY, NOW)).toBe(true);
+  });
+});
+
+describe("shouldIgnoreRotation", () => {
+  it("ignores a rotation event within 5 s of a completed run", () => {
+    expect(shouldIgnoreRotation(NOW - 1000, NOW)).toBe(true);
+    expect(shouldIgnoreRotation(NOW - 4999, NOW)).toBe(true);
+  });
+
+  it("handles a rotation event 5 s or more after the last run", () => {
+    expect(shouldIgnoreRotation(NOW - 5000, NOW)).toBe(false);
+    expect(shouldIgnoreRotation(NOW - 60_000, NOW)).toBe(false);
+  });
+
+  it("handles a rotation when no run has completed yet", () => {
+    expect(shouldIgnoreRotation(0, NOW)).toBe(false);
+  });
+
+  it("does not ignore when the clock went backwards", () => {
+    expect(shouldIgnoreRotation(NOW + 1000, NOW)).toBe(false);
+  });
+});
+
+describe("shouldReportOutcome", () => {
+  it("reports an outcome the first time only", () => {
+    const seen = new Set<PushRegistrationOutcome>();
+    expect(shouldReportOutcome(seen, "permission-denied")).toBe(true);
+    expect(shouldReportOutcome(seen, "permission-denied")).toBe(false);
+    expect(shouldReportOutcome(seen, "token-error")).toBe(true);
+  });
+
+  it("reports 'registered' but never 'unchanged'", () => {
+    const seen = new Set<PushRegistrationOutcome>();
+    expect(shouldReportOutcome(seen, "unchanged")).toBe(false);
+    expect(shouldReportOutcome(seen, "registered")).toBe(true);
+    expect(shouldReportOutcome(seen, "registered")).toBe(false);
   });
 });
 

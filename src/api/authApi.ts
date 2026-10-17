@@ -49,6 +49,9 @@ export const updateProfileApi = (data: { name?: string }) =>
 export const updatePushTokenApi = (pushToken: string) =>
   api.post("/users/push-token", { pushToken });
 
+export const reportPushStatusApi = (outcome: string, detail?: string) =>
+  api.post("/users/push-status", { outcome, detail });
+
 export const uploadAvatarApi = (imageUri: string) => {
   const formData = new FormData();
   formData.append("avatar", {
