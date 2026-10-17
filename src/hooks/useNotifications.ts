@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
 import Constants from "expo-constants";
-import { Platform } from "react-native";
+import { AppState, Platform } from "react-native";
 import { updatePushTokenApi } from "../api/authApi";
 import { useAppSelector } from "../store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -11,6 +11,13 @@ import {
   waitForNavigation,
 } from "../navigation/navigationRef";
 import { isNewLaunchResponse } from "../utils/notificationRoute";
+import { logger } from "../utils/logger";
+import {
+  describeOutcome,
+  isValidExpoToken,
+  shouldUploadToken,
+  type PushRegistrationOutcome,
+} from "../utils/pushRegistration";
 
 /** Identifier of the last notification tap already routed. */
 const LAST_HANDLED_KEY = "@finzz_last_handled_notification";
@@ -56,6 +63,23 @@ const projectId =
   (Constants as unknown as { easConfig?: { projectId?: string } }).easConfig
     ?.projectId;
 
+/**
+ * Registration bookkeeping. Deliberately NOT under the `@finzz_cache_` prefix
+ * (see cacheManager), so a cache clear does not make the device forget what
+ * it already told the server. The user key stops account B on a shared device
+ * from being skipped as "unchanged" because account A uploaded the same token.
+ */
+const LAST_TOKEN_KEY = "@finzz_push_token_last";
+const LAST_AT_KEY = "@finzz_push_token_at";
+const LAST_USER_KEY = "@finzz_push_token_user";
+
+/** Foreground re-registration is throttled to once per this window. */
+const FOREGROUND_THROTTLE_MS = 10 * 60 * 1000;
+
+let lastForegroundRunAt = 0;
+let askedAgainThisSession = false;
+let inFlight: Promise<PushRegistrationOutcome> | null = null;
+
 export function useNotifications() {
   // Depend on the ID, not the object.
   //
@@ -75,7 +99,23 @@ export function useNotifications() {
   useEffect(() => {
     if (!userId) return;
 
-    void registerForPushNotificationsAsync();
+    void registerForPushNotificationsAsync(userId);
+
+    // Re-run when the app returns to the foreground (throttled): picks up a
+    // permission granted in system settings and heals a missing/pruned token.
+    const appStateSub = AppState.addEventListener("change", (next) => {
+      if (next !== "active") return;
+      const now = Date.now();
+      if (now - lastForegroundRunAt < FOREGROUND_THROTTLE_MS) return;
+      lastForegroundRunAt = now;
+      void registerForPushNotificationsAsync(userId);
+    });
+
+    // The device token rotated (FCM refresh): fetch the Expo token again and
+    // upload it. Not throttled, because the token really changed.
+    const tokenSub = Notifications.addPushTokenListener(() => {
+      void registerForPushNotificationsAsync(userId);
+    });
 
     notificationListener.current =
       Notifications.addNotificationReceivedListener(() => {
@@ -93,6 +133,8 @@ export function useNotifications() {
     return () => {
       notificationListener.current?.remove();
       responseListener.current?.remove();
+      appStateSub.remove();
+      tokenSub.remove();
     };
   }, [userId]);
 
@@ -126,51 +168,124 @@ export function useNotifications() {
   }, [userId]);
 }
 
-async function registerForPushNotificationsAsync(): Promise<string | null> {
-  try {
-    if (!Device.isDevice) return null;
+const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-    // Create the Android channel BEFORE requesting a token, so the first
-    // notification already has an importance level to be delivered under.
-    if (Platform.OS === "android") {
-      await Notifications.setNotificationChannelAsync("default", {
-        name: "Default",
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: "#007AFF",
-      });
-    }
-
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-
-    if (existingStatus === "undetermined") {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
-    }
-
-    /**
-     * Silent when denied.
-     *
-     * The previous version showed an Alert with an "Open Settings" button
-     * every time the app launched with notifications disabled — nagging the
-     * user for a choice they had already made. Permission is now requested
-     * once (only when `undetermined`); prompting to re-enable belongs on the
-     * notifications screen, where the user went looking for it.
-     */
-    if (finalStatus !== "granted") return null;
-
-    const tokenData = await Notifications.getExpoPushTokenAsync(
-      projectId ? { projectId } : undefined,
+/** Log a non-success outcome; "registered"/"unchanged" are the happy paths. */
+const report = (
+  outcome: PushRegistrationOutcome,
+  error?: unknown,
+): PushRegistrationOutcome => {
+  if (outcome !== "registered" && outcome !== "unchanged") {
+    logger.warn(
+      `[push] ${outcome}: ${describeOutcome(outcome)}`,
+      error === undefined ? "" : errMsg(error),
     );
-    const token = tokenData.data;
-
-    await updatePushTokenApi(token);
-    return token;
-  } catch {
-    // Push registration failing must never break app startup.
-    return null;
   }
+  return outcome;
+};
+
+/**
+ * Forget what was uploaded, so the next sign-in always uploads. Call on
+ * sign-out (AccountScreen), alongside the server-side token removal.
+ */
+export async function clearPushRegistrationState(): Promise<void> {
+  await AsyncStorage.multiRemove([
+    LAST_TOKEN_KEY,
+    LAST_AT_KEY,
+    LAST_USER_KEY,
+  ]).catch(() => undefined);
+}
+
+/** Concurrent triggers (login + foreground + rotation) share one run. */
+export function registerForPushNotificationsAsync(
+  userId: string,
+): Promise<PushRegistrationOutcome> {
+  if (inFlight) return inFlight;
+  inFlight = runRegistration(userId)
+    .catch((e) => report("token-error", e))
+    .finally(() => {
+      inFlight = null;
+    });
+  return inFlight;
+}
+
+async function runRegistration(
+  userId: string,
+): Promise<PushRegistrationOutcome> {
+  if (!Device.isDevice) return report("not-a-device");
+
+  // Create the Android channel BEFORE requesting a token, so the first
+  // notification already has an importance level to be delivered under.
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync("default", {
+      name: "Default",
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: "#007AFF",
+    });
+  }
+
+  let perm = await Notifications.getPermissionsAsync();
+  if (perm.status === "undetermined") {
+    perm = await Notifications.requestPermissionsAsync();
+  } else if (
+    perm.status === "denied" &&
+    perm.canAskAgain &&
+    !askedAgainThisSession
+  ) {
+    // Android lets us ask again until the user picks "don't ask again".
+    // Once per app session, so this is never a nag loop.
+    askedAgainThisSession = true;
+    perm = await Notifications.requestPermissionsAsync();
+  }
+  if (perm.status !== "granted") return report("permission-denied");
+
+  if (!projectId) return report("no-project-id");
+
+  let token: string;
+  try {
+    const tokenData = await Notifications.getExpoPushTokenAsync({ projectId });
+    token = tokenData.data;
+  } catch (e) {
+    return report("token-error", e);
+  }
+  if (!isValidExpoToken(token)) {
+    return report("token-error", new Error("Malformed Expo push token"));
+  }
+
+  const [[, lastToken], [, lastAtRaw], [, lastUser]] =
+    await AsyncStorage.multiGet([LAST_TOKEN_KEY, LAST_AT_KEY, LAST_USER_KEY]);
+  const lastAt = lastAtRaw ? Number(lastAtRaw) : null;
+  // A different account on this device must upload even for the same token.
+  const sameUser = lastUser === userId;
+
+  const now = Date.now();
+  if (
+    !shouldUploadToken(
+      token,
+      sameUser ? lastToken : null,
+      sameUser ? lastAt : null,
+      now,
+    )
+  ) {
+    return "unchanged";
+  }
+
+  try {
+    await updatePushTokenApi(token);
+  } catch (e) {
+    // Old stored values are kept, so the next trigger retries.
+    return report("upload-error", e);
+  }
+
+  await AsyncStorage.multiSet([
+    [LAST_TOKEN_KEY, token],
+    [LAST_AT_KEY, String(now)],
+    [LAST_USER_KEY, userId],
+  ]).catch((e) =>
+    logger.warn("[push] could not persist upload state", errMsg(e)),
+  );
+  return "registered";
 }
 
 /** The device's current Expo push token, for de-registration on sign-out. */

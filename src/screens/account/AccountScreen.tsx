@@ -23,7 +23,10 @@ import {
 } from "../../api/authApi";
 import { tokenManager } from "../../utils/tokenManager";
 import { cacheManager } from "../../utils/cacheManager";
-import { getCurrentPushToken } from "../../hooks/useNotifications";
+import {
+  clearPushRegistrationState,
+  getCurrentPushToken,
+} from "../../hooks/useNotifications";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
   updateAvatar,
@@ -104,6 +107,14 @@ const AccountScreen = ({ navigation }: any) => {
             await logoutApi({ refreshToken, pushToken });
           } catch {
             // Best effort — proceed with the local sign-out either way.
+          }
+
+          // Forget the uploaded push token so the next sign-in re-uploads.
+          // Must never block sign-out.
+          try {
+            await clearPushRegistrationState();
+          } catch {
+            // Ignore — local sign-out proceeds regardless.
           }
 
           await tokenManager.clearAll();
