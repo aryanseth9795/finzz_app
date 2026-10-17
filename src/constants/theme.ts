@@ -123,6 +123,30 @@ export const lightColors = {
   // Card
   card: "#FFFFFF",
   cardBorder: "#E2E8F0",
+
+  // Charts (neutral-first; hex only so consumers can append alpha)
+  chart: {
+    categorical: [
+      "#6366F1", // indigo
+      "#0D9488", // teal
+      "#D97706", // amber
+      "#8B5CF6", // violet
+      "#0284C7", // sky
+      "#E11D48", // rose
+      "#65A30D", // lime
+      "#64748B", // slate
+    ],
+    spend: "#4F46E5",
+    spendSoft: "#A5B4FC",
+    income: "#0D9488",
+    incomeSoft: "#99F6E4",
+    grid: "#E2E8F0",
+    axis: "#64748B",
+    track: "#EEF2FF",
+    positive: "#059669",
+    negative: "#E11D48",
+    heat: ["#EEF2FF", "#C7D2FE", "#A5B4FC", "#6366F1", "#4338CA"],
+  },
 };
 
 // ========================
@@ -206,6 +230,30 @@ export const darkColors = {
   // Card
   card: "#18181B", // Zinc-900
   cardBorder: "#27272A",
+
+  // Charts (neutral-first; hex only so consumers can append alpha)
+  chart: {
+    categorical: [
+      "#818CF8", // indigo
+      "#2DD4BF", // teal
+      "#FBBF24", // amber
+      "#A78BFA", // violet
+      "#38BDF8", // sky
+      "#FB7185", // rose
+      "#A3E635", // lime
+      "#94A3B8", // slate
+    ],
+    spend: "#818CF8",
+    spendSoft: "#3730A3",
+    income: "#2DD4BF",
+    incomeSoft: "#134E4A",
+    grid: "#2F2F35",
+    axis: "#A1A1AA",
+    track: "#27272A",
+    positive: "#34D399",
+    negative: "#FB7185",
+    heat: ["#27272A", "#312E81", "#4338CA", "#6366F1", "#A5B4FC"],
+  },
 };
 
 export type ThemeColors = typeof lightColors;
