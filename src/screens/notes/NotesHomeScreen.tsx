@@ -24,6 +24,11 @@ import {
 import { listNotesApi, getNoteLabelsApi } from "../../api/notesApi";
 import { describeError } from "../../api/axios";
 import { logger } from "../../utils/logger";
+import {
+  createRequestGate,
+  isLabelFilterStale,
+  sameNotesFilter,
+} from "../../utils/notes";
 import type { INote, INoteLabel, NoteScope } from "../../types";
 import NoteCard from "./components/NoteCard";
 
@@ -52,10 +57,31 @@ const NotesHomeScreen = ({ navigation }: any) => {
     kind: "first" | "more";
   } | null>(null);
 
-  // Incremented for every page-1 fetch. Responses carrying an older id (a
-  // previous filter, or a pagination started before a refetch) are dropped.
-  const requestId = useRef(0);
+  // Ids are issued per page-1 fetch. Responses carrying an older id (a
+  // previous filter, or a pagination started before a refetch) are dropped,
+  // and closing the gate on unmount drops anything still in flight at logout
+  // (MainTabs unmounts and Redux is reset) so it cannot write into the new store.
+  const gate = useRef(createRequestGate()).current;
+  // Same idea for the label list, so a slow /labels response cannot apply a
+  // stale-label reset against a filter the user has already moved on from.
+  const labelGate = useRef(createRequestGate()).current;
+  // Id of the latest page-1 fetch; loadMore pairs itself with it.
+  const listId = useRef(0);
   const loadingMoreRef = useRef(false);
+  // The filter the rows currently in the store were fetched with.
+  const fetchedFilter = useRef<{
+    scope: NoteScope;
+    label: string | null;
+    q: string;
+  } | null>(null);
+
+  useEffect(
+    () => () => {
+      gate.close();
+      labelGate.close();
+    },
+    [gate, labelGate],
+  );
 
   // Debounced search -> store.
   useEffect(() => {
@@ -69,8 +95,19 @@ const NotesHomeScreen = ({ navigation }: any) => {
   }, [searchText, q, dispatch]);
 
   const fetchFirstPage = useCallback(async () => {
-    const id = ++requestId.current;
+    const id = gate.next();
+    listId.current = id;
     setError(null);
+    const filter = { scope, label, q };
+    // A new filter must not keep showing rows fetched under the old one (or
+    // leave them there if this fetch fails). A same-filter refresh keeps them.
+    if (
+      fetchedFilter.current &&
+      !sameNotesFilter(fetchedFilter.current, filter)
+    ) {
+      dispatch(setNotes({ notes: [], nextCursor: null, hasMore: true }));
+      fetchedFilter.current = null;
+    }
     dispatch(setNotesLoading(true));
     try {
       const res = await listNotesApi({
@@ -79,7 +116,8 @@ const NotesHomeScreen = ({ navigation }: any) => {
         q: q || undefined,
         limit: PAGE_SIZE,
       });
-      if (id !== requestId.current) return;
+      if (!gate.isCurrent(id)) return;
+      fetchedFilter.current = filter;
       dispatch(
         setNotes({
           notes: res.data.notes,
@@ -88,23 +126,31 @@ const NotesHomeScreen = ({ navigation }: any) => {
         }),
       );
     } catch (e) {
-      if (id !== requestId.current) return;
+      if (!gate.isCurrent(id)) return;
       logger.error("Failed to fetch notes:", e);
       dispatch(setNotesLoading(false));
       setError({ message: describeError(e), kind: "first" });
     }
-  }, [dispatch, scope, label, q]);
+  }, [dispatch, gate, scope, label, q]);
 
   const fetchLabels = useCallback(async () => {
+    const id = labelGate.next();
     try {
       const res = await getNoteLabelsApi();
-      setLabels(res.data.labels ?? []);
+      if (!labelGate.isCurrent(id)) return;
+      const next = res.data.labels ?? [];
+      setLabels(next);
+      // The labelled person may have vanished (their last note was cleared or
+      // deleted); a filter on them would otherwise hide every note.
+      if (isLabelFilterStale(label, next)) {
+        dispatch(setNotesFilter({ label: null }));
+      }
     } catch (e) {
       // Labels are a filter convenience; the list itself still works without
       // them, so a failure here is logged rather than blocking the screen.
       logger.error("Failed to fetch note labels:", e);
     }
-  }, []);
+  }, [dispatch, labelGate, label]);
 
   // Runs on focus and again whenever scope/label/q change (the callback
   // identity changes), so there is one refetch path for all of them.
@@ -117,7 +163,7 @@ const NotesHomeScreen = ({ navigation }: any) => {
 
   const loadMore = useCallback(async () => {
     if (!hasMore || !nextCursor || loading || loadingMoreRef.current) return;
-    const id = requestId.current;
+    const id = listId.current;
     loadingMoreRef.current = true;
     setLoadingMore(true);
     setError(null);
@@ -129,7 +175,7 @@ const NotesHomeScreen = ({ navigation }: any) => {
         cursor: nextCursor,
         limit: PAGE_SIZE,
       });
-      if (id !== requestId.current) return;
+      if (!gate.isCurrent(id)) return;
       dispatch(
         appendNotes({
           notes: res.data.notes,
@@ -138,14 +184,14 @@ const NotesHomeScreen = ({ navigation }: any) => {
         }),
       );
     } catch (e) {
-      if (id !== requestId.current) return;
+      if (!gate.isCurrent(id)) return;
       logger.error("Failed to fetch more notes:", e);
       setError({ message: describeError(e), kind: "more" });
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [dispatch, hasMore, nextCursor, loading, scope, label, q]);
+  }, [dispatch, gate, hasMore, nextCursor, loading, scope, label, q]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -296,7 +342,10 @@ const NotesHomeScreen = ({ navigation }: any) => {
     return null;
   };
 
-  const showLabelChips = scope !== "shared" && labels.length > 0;
+  // label !== null keeps the row (and its "Everyone" chip) available even when
+  // /labels came back empty, so an active label filter can always be cleared.
+  const showLabelChips =
+    scope !== "shared" && (labels.length > 0 || label !== null);
   // Keep the previous list visible when a refetch fails; only show a banner.
   const showErrorBanner = !!error && (error.kind === "more" || items.length > 0);
 

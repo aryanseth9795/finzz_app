@@ -14,9 +14,12 @@ import {
   isNoteDirty,
   noteErrorKind,
   conflictNote,
+  isLabelFilterStale,
+  createRequestGate,
+  sameNotesFilter,
 } from "./notes";
 import { routeForNotification } from "./notificationRoute";
-import type { INote } from "../types";
+import type { INote, INoteLabel } from "../types";
 
 // Local time, so the calendar-day rules are deterministic in any timezone.
 const now = new Date(2026, 9, 17, 12, 0, 0);
@@ -199,7 +202,11 @@ describe("note_shared notification route", () => {
   it("opens the editor when a noteId is present", () => {
     expect(routeForNotification({ type: "note_shared", noteId: "n1" })).toEqual({
       name: "Notes",
-      params: { screen: "NoteEditor", params: { noteId: "n1" } },
+      params: {
+        screen: "NoteEditor",
+        params: { noteId: "n1" },
+        initial: false,
+      },
     });
   });
   it("opens the notes list without a noteId", () => {
@@ -207,5 +214,66 @@ describe("note_shared notification route", () => {
       name: "Notes",
       params: { screen: "NotesHome" },
     });
+  });
+});
+
+describe("isLabelFilterStale", () => {
+  const labels: INoteLabel[] = [
+    { user: { _id: "u1", name: "Bob" }, count: 2 },
+  ];
+  it("is false with no label", () => {
+    expect(isLabelFilterStale(null, labels)).toBe(false);
+  });
+  it('is false for the "none" label', () => {
+    expect(isLabelFilterStale("none", [])).toBe(false);
+  });
+  it("is false when the id is present", () => {
+    expect(isLabelFilterStale("u1", labels)).toBe(false);
+  });
+  it("is true when the id is absent", () => {
+    expect(isLabelFilterStale("u2", labels)).toBe(true);
+  });
+  it("is true for an absent id with empty labels", () => {
+    expect(isLabelFilterStale("u1", [])).toBe(true);
+  });
+});
+
+describe("createRequestGate", () => {
+  it("issues increasing ids", () => {
+    const g = createRequestGate();
+    const a = g.next();
+    const b = g.next();
+    expect(b).toBeGreaterThan(a);
+  });
+  it("makes older ids stale after next()", () => {
+    const g = createRequestGate();
+    const a = g.next();
+    expect(g.isCurrent(a)).toBe(true);
+    const b = g.next();
+    expect(g.isCurrent(a)).toBe(false);
+    expect(g.isCurrent(b)).toBe(true);
+  });
+  it("is never current after close()", () => {
+    const g = createRequestGate();
+    const a = g.next();
+    g.close();
+    expect(g.isCurrent(a)).toBe(false);
+    expect(g.isCurrent(g.next())).toBe(false);
+  });
+});
+
+describe("sameNotesFilter", () => {
+  const base = { scope: "all" as const, label: null, q: "" };
+  it("is true for equal filters", () => {
+    expect(sameNotesFilter(base, { ...base })).toBe(true);
+  });
+  it("differs by scope", () => {
+    expect(sameNotesFilter(base, { ...base, scope: "mine" })).toBe(false);
+  });
+  it("differs by label", () => {
+    expect(sameNotesFilter(base, { ...base, label: "u1" })).toBe(false);
+  });
+  it("differs by q", () => {
+    expect(sameNotesFilter(base, { ...base, q: "x" })).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 import dayjs from "dayjs";
-import type { INote, NoteRole } from "../types";
+import type { INote, INoteLabel, NoteRole, NoteScope } from "../types";
 
 export const NOTE_TITLE_MAX = 120;
 export const NOTE_BODY_MAX = 20000;
@@ -142,3 +142,35 @@ export const noteErrorKind = (
 export const conflictNote = (error: unknown): INote | null =>
   (error as { response?: { data?: { note?: INote } } } | null | undefined)?.response
     ?.data?.note ?? null;
+
+/**
+ * True when `label` is a person id that no longer appears in the label list
+ * (their last note was cleared or deleted). "none" and null are never stale.
+ */
+export const isLabelFilterStale = (
+  label: string | null,
+  labels: INoteLabel[],
+): boolean =>
+  label !== null && label !== "none" && !labels.some((l) => l.user._id === label);
+
+/**
+ * Hands out request ids so only the latest request may write results.
+ * `close()` (screen unmount) makes every id, including ones issued afterwards,
+ * permanently stale, so a response that lands after logout is dropped.
+ */
+export const createRequestGate = () => {
+  let latest = 0;
+  let closed = false;
+  return {
+    next: (): number => ++latest,
+    isCurrent: (id: number): boolean => !closed && id === latest,
+    close: (): void => {
+      closed = true;
+    },
+  };
+};
+
+type NotesFilter = { scope: NoteScope; label: string | null; q: string };
+
+export const sameNotesFilter = (a: NotesFilter, b: NotesFilter): boolean =>
+  a.scope === b.scope && a.label === b.label && a.q === b.q;

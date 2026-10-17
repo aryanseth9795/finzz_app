@@ -45,7 +45,16 @@ export const routeForNotification = (
 
     case "note_shared":
       return noteId
-        ? { name: "Notes", params: { screen: "NoteEditor", params: { noteId } } }
+        ? {
+            name: "Notes",
+            // initial: false keeps NotesHome underneath when the stack has
+            // not been mounted yet, so the editor has somewhere to go back to.
+            params: {
+              screen: "NoteEditor",
+              params: { noteId },
+              initial: false,
+            },
+          }
         : { name: "Notes", params: { screen: "NotesHome" } };
 
     default:
