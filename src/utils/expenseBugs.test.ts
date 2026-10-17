@@ -22,6 +22,17 @@ describe("routeForNotification", () => {
     });
   });
 
+  it("routes txn_edited pushes to the chat like txn_added", () => {
+    expect(routeForNotification({ type: "txn_edited", chatId: "c1" })).toEqual({
+      name: "Chats",
+      params: { screen: "ChatScreen", params: { chatId: "c1" } },
+    });
+    expect(routeForNotification({ type: "txn_edited" })).toEqual({
+      name: "Chats",
+      params: { screen: "Home" },
+    });
+  });
+
   it("keeps known routes", () => {
     expect(routeForNotification({ type: "txn_added", chatId: "c1" })).toEqual({
       name: "Chats",

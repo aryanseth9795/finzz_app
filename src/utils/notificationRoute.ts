@@ -21,6 +21,7 @@ export const routeForNotification = (
 
   switch (type) {
     case "txn_added":
+    case "txn_edited":
     case "txn_verified":
     case "txn_rejected":
     case "txn_reworked":
