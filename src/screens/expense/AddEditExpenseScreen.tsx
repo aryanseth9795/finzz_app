@@ -33,6 +33,9 @@ import {
 } from "../../utils/dates";
 import { IExpense } from "../../types";
 
+// Text/icons on coloured fills stay white; the theme has no on-primary token.
+const ON_ACCENT = "#FFFFFF";
+
 const AddEditExpenseScreen = ({ route, navigation }: any) => {
   const { expense, ledgerId } = route.params || {};
   const isEditing = !!expense;
@@ -239,7 +242,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               style={[
                 styles.typeButton,
                 txnType === "debit" && {
-                  backgroundColor: colors.danger || "#EF4444",
+                  backgroundColor: colors.debit,
                 },
               ]}
               onPress={() => setTxnType("debit")}
@@ -248,13 +251,14 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               <Ionicons
                 name="arrow-up-circle"
                 size={20}
-                color={txnType === "debit" ? "#fff" : colors.textSecondary}
+                color={txnType === "debit" ? ON_ACCENT : colors.textSecondary}
               />
               <Text
                 style={[
                   styles.typeButtonText,
                   {
-                    color: txnType === "debit" ? "#fff" : colors.textSecondary,
+                    color:
+                      txnType === "debit" ? ON_ACCENT : colors.textSecondary,
                   },
                 ]}
               >
@@ -265,7 +269,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               style={[
                 styles.typeButton,
                 txnType === "credit" && {
-                  backgroundColor: "#22C55E",
+                  backgroundColor: colors.credit,
                 },
               ]}
               onPress={() => setTxnType("credit")}
@@ -274,13 +278,14 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               <Ionicons
                 name="arrow-down-circle"
                 size={20}
-                color={txnType === "credit" ? "#fff" : colors.textSecondary}
+                color={txnType === "credit" ? ON_ACCENT : colors.textSecondary}
               />
               <Text
                 style={[
                   styles.typeButtonText,
                   {
-                    color: txnType === "credit" ? "#fff" : colors.textSecondary,
+                    color:
+                      txnType === "credit" ? ON_ACCENT : colors.textSecondary,
                   },
                 ]}
               >
@@ -458,7 +463,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 24,
   },
-  saveButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  saveButtonText: { color: ON_ACCENT, fontSize: 16, fontWeight: "700" },
 });
 
 export default AddEditExpenseScreen;
