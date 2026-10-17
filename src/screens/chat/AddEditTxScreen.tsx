@@ -30,6 +30,7 @@ import {
   pickerMinimumDate,
   pickerMaximumDate,
 } from "../../utils/dates";
+import { txStatusOf, isTxConflict, conflictTx } from "../../utils/transactions";
 import { ITx } from "../../types";
 
 
@@ -42,6 +43,8 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
 
   const { chatId, tx, friendName, friend } = route.params;
   const isEditing = !!tx;
+  const editStatus = isEditing ? txStatusOf(tx) : null;
+  const isResubmit = editStatus === "rejected";
 
   const [amount, setAmount] = useState(isEditing ? String(tx.amount) : "");
 
@@ -81,15 +84,10 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
     }
     const numAmount = parsed.value;
 
-    if (isEditing && tx.status !== "rejected") {
-      // One guard, not two: the previous pair checked `status === "verified"`
-      // and then `status !== "rejected"`, the second subsuming the first.
-      Alert.alert(
-        "Cannot Edit",
-        tx.status === "verified"
-          ? "Verified transactions cannot be edited."
-          : "You can only edit a transaction after the other person has rejected it.",
-      );
+    if (isEditing && editStatus !== "pending" && editStatus !== "rejected") {
+      // Pending (stays pending) and rejected (resubmitted) are editable;
+      // anything else, i.e. verified, is not.
+      Alert.alert("Cannot Edit", "Verified transactions cannot be edited.");
       return;
     }
 
@@ -131,7 +129,10 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
 
     try {
       if (isEditing) {
-        const response = await editTxApi(tx._id, payload);
+        const response = await editTxApi(tx._id, {
+          ...payload,
+          expectedUpdatedAt: tx.updatedAt,
+        });
         dispatch(updateTx(response.data.txn || response.data));
       } else {
         const response = await addTxApi(payload);
@@ -145,6 +146,27 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
       );
       navigation.goBack();
     } catch (error) {
+      if (isEditing && isTxConflict(error)) {
+        // Someone changed the transaction since this form was opened. Sync the
+        // store with the latest version, tell the user, and leave the form.
+        const latest = conflictTx(error);
+        if (latest) dispatch(updateTx(latest));
+        const alreadyVerified = !!latest && txStatusOf(latest) === "verified";
+        Alert.alert(
+          "Transaction changed",
+          alreadyVerified
+            ? `${friendName || "The other person"} already verified this transaction, so it can't be edited.`
+            : "This transaction was changed. Please review it and try again.",
+        );
+        try {
+          await cacheManager.removeByPrefix(CACHE_KEYS.TRANSACTIONS_PREFIX(chatId));
+          await cacheManager.remove(CACHE_KEYS.CHATS);
+        } catch {
+          // Cache invalidation is best-effort here.
+        }
+        navigation.goBack();
+        return;
+      }
       // Stay on the form so the user's input is not lost.
       Alert.alert("Could not save", describeError(error));
     } finally {
@@ -176,7 +198,11 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
                 { color: colors.text, fontSize: fs.lg },
               ]}
             >
-              {isEditing ? "Resubmit Transaction" : "New Transaction"}
+              {!isEditing
+                ? "New Transaction"
+                : isResubmit
+                  ? "Resubmit Transaction"
+                  : "Edit Transaction"}
             </Text>
             <View style={{ width: 24 }} />
           </View>
@@ -191,7 +217,9 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
             >
               <Ionicons name="refresh-circle-outline" size={18} color={colors.primary} />
               <Text style={[styles.resubmitText, { color: colors.primary }]}>
-                Saving will resubmit this transaction for review
+                {isResubmit
+                  ? "Saving will resubmit this transaction for review"
+                  : `It stays pending until ${friendName || "the other person"} verifies it.`}
               </Text>
             </View>
           )}
