@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
@@ -15,7 +15,6 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -38,6 +37,15 @@ import { CACHE_DURATION } from "../../constants/api";
 import { ITx, IChatStats, IUser, IAvailableMonth } from "../../types";
 import { logger } from "../../utils/logger";
 import { describeError } from "../../api/axios";
+import MonthSelector from "../../components/chat/MonthSelector";
+import {
+  MONTH_SHORT,
+  currentYearMonth,
+  firstOfMonthApiDate,
+  isSameMonth,
+  withCurrentMonth,
+  type YearMonth,
+} from "../../utils/months";
 
 const ChatScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
@@ -52,10 +60,17 @@ const ChatScreen = ({ route, navigation }: any) => {
   const [loadingMore, setLoadingMore] = useState(false);
 
   // Month picker state
-  const now = new Date();
+  const [now] = useState(() => new Date());
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [availableMonths, setAvailableMonths] = useState<IAvailableMonth[]>([]);
+  const selectorMonths = useMemo(
+    () => withCurrentMonth(availableMonths, now),
+    [availableMonths, now],
+  );
+  // Bumped on every month change; a response carrying an older id is dropped.
+  const requestIdRef = useRef(0);
+  const hasFocusedRef = useRef(false);
 
   // Rejection modal state
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
@@ -70,11 +85,12 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   const fetchTransactions = useCallback(
     async (isRefresh = false) => {
+      const requestId = requestIdRef.current;
+      const isStale = () => requestId !== requestIdRef.current;
       try {
-        if (!isRefresh) dispatch(setTxLoading(true));
-
         // Try cache first for initial load
         if (!isRefresh) {
+          dispatch(setTxLoading(true));
           const cached = await cacheManager.get<{
             txns: ITx[];
             nextCursor: string | null;
@@ -83,8 +99,15 @@ const ChatScreen = ({ route, navigation }: any) => {
             CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
             CACHE_DURATION.TRANSACTIONS,
           );
+          if (isStale()) return;
           if (cached) {
             dispatch(setTransactions(cached));
+          } else {
+            // Never show another month's rows under this month's label.
+            dispatch(
+              setTransactions({ txns: [], nextCursor: null, hasMore: true }),
+            );
+            dispatch(setTxLoading(true));
           }
         }
 
@@ -95,37 +118,34 @@ const ChatScreen = ({ route, navigation }: any) => {
           selectedMonth,
         );
         const data = response.data;
-        dispatch(
-          setTransactions({
-            txns: data.txns || data,
-            nextCursor: data.nextCursor || null,
-            hasMore: data.hasMore ?? false,
-          }),
-        );
+        const payload = {
+          txns: data.txns || data,
+          nextCursor: data.nextCursor || null,
+          hasMore: data.hasMore ?? false,
+        };
+        if (!isStale()) dispatch(setTransactions(payload));
         await cacheManager.set(
           CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
-          {
-            txns: data.txns || data,
-            nextCursor: data.nextCursor || null,
-            hasMore: data.hasMore ?? false,
-          },
+          payload,
         );
       } catch (error) {
         logger.error("Failed to fetch transactions:", error);
       } finally {
-        dispatch(setTxLoading(false));
+        if (!isStale()) dispatch(setTxLoading(false));
       }
     },
     [chatId, dispatch, selectedYear, selectedMonth],
   );
 
   const fetchStats = useCallback(async () => {
+    const requestId = requestIdRef.current;
     try {
       const response = await getChatStatsApi(
         chatId,
         selectedYear,
         selectedMonth,
       );
+      if (requestId !== requestIdRef.current) return;
       const backendStats = response.data.stats;
       dispatch(setStats(backendStats));
     } catch (error) {
@@ -136,42 +156,42 @@ const ChatScreen = ({ route, navigation }: any) => {
   const fetchAvailableMonths = useCallback(async () => {
     try {
       const response = await getChatMonthsApi(chatId);
-      const months: IAvailableMonth[] = response.data.months || [];
-      setAvailableMonths(months);
-      // Ensure current month is always in the list
-      const now = new Date();
-      const hasCurrentMonth = months.some(
-        (m) => m.year === now.getFullYear() && m.month === now.getMonth() + 1,
-      );
-      if (!hasCurrentMonth) {
-        setAvailableMonths([
-          { year: now.getFullYear(), month: now.getMonth() + 1, txCount: 0 },
-          ...months,
-        ]);
-      }
+      setAvailableMonths(response.data.months || []);
     } catch (error) {
       logger.error("Failed to fetch months:", error);
     }
   }, [chatId]);
 
+  // Single month-driven load path (runs on mount and on every month change).
   useEffect(() => {
+    requestIdRef.current += 1;
     fetchTransactions();
     fetchStats();
-    fetchAvailableMonths();
-  }, [fetchTransactions, fetchStats, fetchAvailableMonths]);
+  }, [fetchTransactions, fetchStats]);
 
-  // Re-fetch stats when month changes
-  useEffect(() => {
-    fetchStats();
-  }, [selectedYear, selectedMonth, fetchStats]);
+  // Always-current fetchers for the focus effect, so a month change does not
+  // re-run it (that would fetch the new month's stats a second time).
+  const latestFetchers = useRef({ fetchTransactions, fetchStats });
+  latestFetchers.current = { fetchTransactions, fetchStats };
 
-  // Refresh data when screen comes into focus (e.g., after adding a transaction)
+  // Refresh when the screen comes into focus (e.g. after adding a transaction).
+  // The first focus is covered by the effect above, so it only loads months.
   useFocusEffect(
     useCallback(() => {
-      fetchTransactions(true);
-      fetchStats();
-    }, [fetchTransactions, fetchStats]),
+      fetchAvailableMonths();
+      if (hasFocusedRef.current) {
+        latestFetchers.current.fetchTransactions(true);
+        latestFetchers.current.fetchStats();
+      }
+      hasFocusedRef.current = true;
+    }, [fetchAvailableMonths]),
   );
+
+  const handleMonthChange = (ym: YearMonth) => {
+    if (isSameMonth(ym, { year: selectedYear, month: selectedMonth })) return;
+    setSelectedYear(ym.year);
+    setSelectedMonth(ym.month);
+  };
 
   const handleLoadMore = async () => {
     if (!hasMore || loadingMore || !nextCursor) return;
@@ -307,21 +327,6 @@ const ChatScreen = ({ route, navigation }: any) => {
     return "Unknown";
   };
 
-  const MONTH_NAMES = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-
   const handleRefresh = async () => {
     setRefreshing(true);
     await Promise.all([
@@ -330,55 +335,6 @@ const ChatScreen = ({ route, navigation }: any) => {
       fetchAvailableMonths(),
     ]);
     setRefreshing(false);
-  };
-
-  const renderMonthPicker = () => {
-    if (!availableMonths || availableMonths.length === 0) return null;
-
-    // Sort months: newest first
-    const sortedMonths = [...availableMonths].sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.month - a.month;
-    });
-
-    return (
-      <View
-        style={[
-          styles.monthPickerContainer,
-          {
-            backgroundColor: colors.surfaceSecondary,
-            borderColor: colors.separator,
-          },
-        ]}
-      >
-        <Text
-          style={[
-            styles.monthPickerLabel,
-            { color: colors.textSecondary, fontSize: fs.xs },
-          ]}
-        >
-          Month:
-        </Text>
-        <Picker
-          selectedValue={`${selectedYear}-${selectedMonth}`}
-          onValueChange={(itemValue) => {
-            const [year, month] = itemValue.split("-");
-            setSelectedYear(parseInt(year));
-            setSelectedMonth(parseInt(month));
-          }}
-          style={[styles.picker, { color: colors.text }]}
-          dropdownIconColor={colors.text}
-        >
-          {sortedMonths.map((m) => (
-            <Picker.Item
-              key={`${m.year}-${m.month}`}
-              label={`${MONTH_NAMES[m.month - 1]} ${m.year}`}
-              value={`${m.year}-${m.month}`}
-            />
-          ))}
-        </Picker>
-      </View>
-    );
   };
 
   const renderStatsBar = () => {
@@ -393,6 +349,13 @@ const ChatScreen = ({ route, navigation }: any) => {
     const carryForward = stats.carryForward?.[user._id] || 0;
     const currentMonthNet = myStats.totalSent - myStats.totalReceived;
     const totalNet = currentMonthNet - carryForward;
+    const isCurrentMonth = isSameMonth(
+      { year: selectedYear, month: selectedMonth },
+      currentYearMonth(now),
+    );
+    const monthTag = isCurrentMonth
+      ? "(This Month)"
+      : `in ${MONTH_SHORT[selectedMonth - 1]}`;
 
     return (
       <View style={styles.statsContainer}>
@@ -413,7 +376,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                   { color: colors.textSecondary, fontSize: 10 },
                 ]}
               >
-                Sent (This Month)
+                Sent {monthTag}
               </Text>
               <Text
                 style={[
@@ -432,7 +395,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                   { color: colors.textSecondary, fontSize: 10 },
                 ]}
               >
-                Received (This Month)
+                Received {monthTag}
               </Text>
               <Text
                 style={[
@@ -710,7 +673,7 @@ const ChatScreen = ({ route, navigation }: any) => {
       const carryDate =
         transactions.length > 0
           ? transactions[transactions.length - 1].date
-          : new Date(selectedYear, selectedMonth - 1, 1).toISOString();
+          : firstOfMonthApiDate({ year: selectedYear, month: selectedMonth });
 
       const carryForwardTx: ITx = {
         _id: "carry-forward",
@@ -762,7 +725,12 @@ const ChatScreen = ({ route, navigation }: any) => {
       </View>
 
       {/* Month Picker */}
-      {renderMonthPicker()}
+      <MonthSelector
+        months={selectorMonths}
+        selected={{ year: selectedYear, month: selectedMonth }}
+        onChange={handleMonthChange}
+        loading={txLoading}
+      />
 
       {/* Stats Bar */}
       {renderStatsBar()}
@@ -951,26 +919,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-  },
-  // Month Picker
-  monthPickerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginBottom: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 4, // Reduced vertical padding since Picker has own height
-    borderRadius: 16,
-    borderWidth: 1,
-    minHeight: 52,
-  },
-  monthPickerLabel: {
-    fontWeight: "600",
-    marginRight: 8,
-  },
-  picker: {
-    flex: 1,
-    height: 50,
   },
   // Single stats card
   statsContainer: {
