@@ -7,6 +7,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import HomeScreen from "../screens/home/HomeScreen";
 import ChatScreen from "../screens/chat/ChatScreen";
 import AddEditTxScreen from "../screens/chat/AddEditTxScreen";
+import ReportPreviewScreen from "../screens/chat/ReportPreviewScreen";
 import FriendsScreen from "../screens/friends/FriendsScreen";
 import PoolScreen from "../screens/pool/PoolScreen";
 import CreatePoolScreen from "../screens/pool/CreatePoolScreen";
@@ -43,6 +44,7 @@ const ChatsStackNavigator = () => {
       <ChatsStack.Screen name="AddEditTx" component={AddEditTxScreen} />
       <ChatsStack.Screen name="AddFriend" component={FriendsScreen} />
       <ChatsStack.Screen name="Report" component={ReportScreen} />
+      <ChatsStack.Screen name="ReportPreview" component={ReportPreviewScreen} />
     </ChatsStack.Navigator>
   );
 };
