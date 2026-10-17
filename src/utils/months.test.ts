@@ -6,6 +6,7 @@ import {
   currentYearMonth,
   firstOfMonthApiDate,
   isSameMonth,
+  isStatsForMonth,
   monthKey,
   monthLabel,
   sortMonthsDesc,
@@ -148,5 +149,20 @@ describe("firstOfMonthApiDate", () => {
   it("is UTC midnight on the 1st", () => {
     expect(firstOfMonthApiDate({ year: 2026, month: 10 })).toBe("2026-10-01T00:00:00.000Z");
     expect(firstOfMonthApiDate({ year: 2027, month: 1 })).toBe("2027-01-01T00:00:00.000Z");
+  });
+});
+
+describe("isStatsForMonth", () => {
+  const stats = { year: 2026, month: 9 };
+
+  it("is true only when the stats' year and month match", () => {
+    expect(isStatsForMonth(stats, { year: 2026, month: 9 })).toBe(true);
+    expect(isStatsForMonth(stats, { year: 2026, month: 10 })).toBe(false);
+    expect(isStatsForMonth(stats, { year: 2025, month: 9 })).toBe(false);
+  });
+
+  it("is false when there are no stats", () => {
+    expect(isStatsForMonth(null, { year: 2026, month: 9 })).toBe(false);
+    expect(isStatsForMonth(undefined, { year: 2026, month: 9 })).toBe(false);
   });
 });

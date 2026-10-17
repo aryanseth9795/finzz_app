@@ -30,6 +30,12 @@ export const monthLabel = (
 export const isSameMonth = (a: YearMonth, b: YearMonth): boolean =>
   a.year === b.year && a.month === b.month;
 
+/** True only when `stats` (as echoed by the server) belong to month `ym`. */
+export const isStatsForMonth = (
+  stats: YearMonth | null | undefined,
+  ym: YearMonth,
+): boolean => !!stats && isSameMonth(stats, ym);
+
 export const currentYearMonth = (now: Date): YearMonth => ({
   year: now.getFullYear(),
   month: now.getMonth() + 1,

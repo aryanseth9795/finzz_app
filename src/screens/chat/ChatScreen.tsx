@@ -43,6 +43,7 @@ import {
   currentYearMonth,
   firstOfMonthApiDate,
   isSameMonth,
+  isStatsForMonth,
   withCurrentMonth,
   type YearMonth,
 } from "../../utils/months";
@@ -338,16 +339,24 @@ const ChatScreen = ({ route, navigation }: any) => {
   };
 
   const renderStatsBar = () => {
-    if (!stats?.members || !user?._id) return null;
+    if (!stats || !user?._id) return null;
 
-    const myStats = stats.members[user._id];
-    if (!myStats) return null;
+    // Stats of a previously selected month stay in the store until the new
+    // response lands; never show them under the newly selected month.
+    const isFresh = isStatsForMonth(stats, {
+      year: selectedYear,
+      month: selectedMonth,
+    });
+    const myStats = isFresh ? stats.members?.[user._id] : undefined;
+    if (isFresh && !myStats) return null;
 
     // Backend carryForward = Received - Sent (Positive = You Owe)
     // We want Positive = You Receive (Sent - Received)
     // So we subtract the backend carryForward.
     const carryForward = stats.carryForward?.[user._id] || 0;
-    const currentMonthNet = myStats.totalSent - myStats.totalReceived;
+    const totalSent = myStats?.totalSent ?? 0;
+    const totalReceived = myStats?.totalReceived ?? 0;
+    const currentMonthNet = totalSent - totalReceived;
     const totalNet = currentMonthNet - carryForward;
     const isCurrentMonth = isSameMonth(
       { year: selectedYear, month: selectedMonth },
@@ -384,7 +393,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                   { color: colors.debit, fontSize: fs.lg },
                 ]}
               >
-                ₹{myStats.totalSent.toLocaleString("en-IN")}
+                {isFresh ? `₹${totalSent.toLocaleString("en-IN")}` : "—"}
               </Text>
             </View>
             <View style={styles.statDivider} />
@@ -403,7 +412,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                   { color: colors.credit, fontSize: fs.lg },
                 ]}
               >
-                ₹{myStats.totalReceived.toLocaleString("en-IN")}
+                {isFresh ? `₹${totalReceived.toLocaleString("en-IN")}` : "—"}
               </Text>
             </View>
             <View style={styles.statDivider} />
@@ -416,22 +425,33 @@ const ChatScreen = ({ route, navigation }: any) => {
               >
                 Total
               </Text>
-              <Text
-                style={[
-                  styles.statItemValue,
-                  {
-                    color:
-                      totalNet > 0
-                        ? colors.credit
-                        : totalNet < 0
-                          ? colors.debit
-                          : colors.text,
-                    fontSize: fs.lg,
-                  },
-                ]}
-              >
-                ₹{Math.abs(totalNet).toLocaleString("en-IN")}
-              </Text>
+              <View style={{ alignItems: "center", justifyContent: "center" }}>
+                <Text
+                  style={[
+                    styles.statItemValue,
+                    {
+                      color:
+                        totalNet > 0
+                          ? colors.credit
+                          : totalNet < 0
+                            ? colors.debit
+                            : colors.text,
+                      fontSize: fs.lg,
+                      // Keep the line height while loading so the card never jumps.
+                      opacity: isFresh ? 1 : 0,
+                    },
+                  ]}
+                >
+                  {isFresh ? `₹${Math.abs(totalNet).toLocaleString("en-IN")}` : "—"}
+                </Text>
+                {!isFresh && (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.textSecondary}
+                    style={{ position: "absolute" }}
+                  />
+                )}
+              </View>
               <Text
                 style={[
                   styles.statItemSubtext,
@@ -446,11 +466,13 @@ const ChatScreen = ({ route, navigation }: any) => {
                   },
                 ]}
               >
-                {totalNet === 0
-                  ? "Settled"
-                  : totalNet > 0
-                    ? "To receive"
-                    : "To pay"}
+                {!isFresh
+                  ? " "
+                  : totalNet === 0
+                    ? "Settled"
+                    : totalNet > 0
+                      ? "To receive"
+                      : "To pay"}
               </Text>
             </View>
           </View>
@@ -665,7 +687,15 @@ const ChatScreen = ({ route, navigation }: any) => {
   // Create a display list that includes the carry forward entry at the end if needed
   const displayTransactions = [...transactions];
 
-  if (!hasMore && !txLoading && stats?.carryForward && user?._id) {
+  // Only use carry-forward from stats of the selected month; stale stats from
+  // the previously selected month would show the wrong opening balance.
+  if (
+    !hasMore &&
+    !txLoading &&
+    stats?.carryForward &&
+    user?._id &&
+    isStatsForMonth(stats, { year: selectedYear, month: selectedMonth })
+  ) {
     const carryForward = stats.carryForward[user._id] || 0;
     if (carryForward !== 0) {
       // Create a mock transaction for the carry forward
