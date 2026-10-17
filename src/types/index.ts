@@ -307,3 +307,54 @@ export interface IAdvancedExpenseStats {
     category: string;
   }>;
 }
+
+// ========================
+// Note Types
+// ========================
+// Mirror the server's NoteDto (server/src/utils/noteDto.ts). Owner-only fields
+// (`personLabel`, `sharedWith`) are absent for recipients; `sharedAt` is
+// present only for recipients.
+export type NoteRole = "owner" | "editor" | "viewer";
+export type NotePermission = "view" | "edit";
+export type NoteScope = "all" | "mine" | "shared";
+
+export interface INotePerson {
+  _id: string;
+  name: string;
+  avatar?: string;
+}
+
+export interface INote {
+  _id: string;
+  title: string;
+  body: string;
+  /** Set by the list endpoint when `body` is a 300-character preview. */
+  bodyTruncated?: boolean;
+  version: number;
+  createdAt: string;
+  editedAt: string;
+  role: NoteRole;
+  owner: INotePerson;
+  lastEditedBy: { _id: string; name: string } | null;
+  personLabel?: INotePerson | null;
+  sharedWith?: number;
+  sharedAt?: string;
+}
+
+export interface INoteShare {
+  user: INotePerson;
+  permission: NotePermission;
+  sharedAt: string;
+  updatedAt: string;
+}
+
+export interface INoteLabel {
+  user: INotePerson;
+  count: number;
+}
+
+export interface INotesPage {
+  notes: INote[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}

@@ -17,6 +17,7 @@ export const routeForNotification = (
   const type = String(data.type ?? "");
   const chatId = data.chatId ? String(data.chatId) : undefined;
   const poolId = data.poolId ? String(data.poolId) : undefined;
+  const noteId = data.noteId ? String(data.noteId) : undefined;
 
   switch (type) {
     case "txn_added":
@@ -41,6 +42,11 @@ export const routeForNotification = (
 
     case "pool_member_removed":
       return { name: "Pool", params: { screen: "PoolList" } };
+
+    case "note_shared":
+      return noteId
+        ? { name: "Notes", params: { screen: "NoteEditor", params: { noteId } } }
+        : { name: "Notes", params: { screen: "NotesHome" } };
 
     default:
       // Unknown or admin broadcast. This used to target `Expenses →
