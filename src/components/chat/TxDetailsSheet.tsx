@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useRef } from "react";
 import {
   Modal,
   Pressable,
@@ -61,7 +61,7 @@ const formatAt = (at?: string): string | null => {
 };
 
 const TxDetailsSheet: React.FC<TxDetailsSheetProps> = ({
-  tx,
+  tx: txProp,
   meId,
   members,
   friendName,
@@ -75,6 +75,13 @@ const TxDetailsSheet: React.FC<TxDetailsSheetProps> = ({
   const { theme } = useTheme();
   const { colors, spacing, borderRadius, fontSize, fontWeight } = theme;
   const insets = useSafeAreaInsets();
+
+  // Keep the last non-null tx so the slide-out animation (tx becomes null on
+  // close) still shows its content instead of a blank sheet.
+  const lastTxRef = useRef<ITx | null>(null);
+  if (txProp) lastTxRef.current = txProp;
+  const tx = txProp ?? lastTxRef.current;
+  const visible = !!txProp;
 
   const derived = useMemo(() => {
     if (!tx || tx._id === CARRY_FORWARD_ID) return null;
@@ -206,7 +213,7 @@ const TxDetailsSheet: React.FC<TxDetailsSheetProps> = ({
 
   return (
     <Modal
-      visible
+      visible={visible}
       transparent
       animationType="slide"
       onRequestClose={onClose}

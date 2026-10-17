@@ -105,3 +105,10 @@ export const isTxConflict = (error: unknown): boolean =>
 
 export const conflictTx = (error: unknown): ITx | null =>
   (error as ConflictError | null | undefined)?.response?.data?.txn ?? null;
+
+/**
+ * The server's latest copy of a transaction attached to a failed request
+ * (400 already reviewed, 403, or 409 conflict), so the row can be refreshed.
+ */
+export const latestTxFromError = (error: unknown): ITx | null =>
+  (error as ConflictError | null | undefined)?.response?.data?.txn ?? null;

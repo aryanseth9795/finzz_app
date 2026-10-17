@@ -30,7 +30,7 @@ import {
   pickerMinimumDate,
   pickerMaximumDate,
 } from "../../utils/dates";
-import { txStatusOf, isTxConflict, conflictTx } from "../../utils/transactions";
+import { txStatusOf, isTxConflict, latestTxFromError } from "../../utils/transactions";
 import { ITx } from "../../types";
 
 
@@ -149,7 +149,7 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
       if (isEditing && isTxConflict(error)) {
         // Someone changed the transaction since this form was opened. Sync the
         // store with the latest version, tell the user, and leave the form.
-        const latest = conflictTx(error);
+        const latest = latestTxFromError(error);
         if (latest) dispatch(updateTx(latest));
         const alreadyVerified = !!latest && txStatusOf(latest) === "verified";
         Alert.alert(
@@ -167,6 +167,9 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
         navigation.goBack();
         return;
       }
+      // Non-conflict failures (e.g. 400) may still carry the latest copy.
+      const latest = latestTxFromError(error);
+      if (isEditing && latest) dispatch(updateTx(latest));
       // Stay on the form so the user's input is not lost.
       Alert.alert("Could not save", describeError(error));
     } finally {

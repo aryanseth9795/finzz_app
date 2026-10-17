@@ -4,6 +4,7 @@ import {
   CARRY_FORWARD_ID,
   conflictTx,
   isTxConflict,
+  latestTxFromError,
   personName,
   txActions,
   txDirectionText,
@@ -170,5 +171,22 @@ describe("409 helpers", () => {
     expect(conflictTx(err409)).toEqual({ _id: "t1" });
     expect(conflictTx({ response: { status: 409, data: {} } })).toBeNull();
     expect(conflictTx(undefined)).toBeNull();
+  });
+});
+
+describe("latestTxFromError", () => {
+  const txn = { _id: "t1", amount: 5 };
+  it.each([400, 403, 409])("returns the txn for status %i", (status) => {
+    expect(latestTxFromError({ response: { status, data: { txn } } })).toEqual(txn);
+  });
+  it("returns null when no txn is present", () => {
+    expect(latestTxFromError({ response: { status: 400, data: { message: "x" } } })).toBeNull();
+    expect(latestTxFromError({ response: { status: 409 } })).toBeNull();
+    expect(latestTxFromError({ response: { status: 409, data: { txn: null } } })).toBeNull();
+  });
+  it("returns null for non-axios errors", () => {
+    expect(latestTxFromError(new Error("x"))).toBeNull();
+    expect(latestTxFromError(null)).toBeNull();
+    expect(latestTxFromError(undefined)).toBeNull();
   });
 });

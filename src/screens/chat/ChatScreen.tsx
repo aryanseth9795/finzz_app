@@ -20,7 +20,7 @@ import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
-import { getTxnsApi, verifyTxApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
+import { getTxnsApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
 import { getChatStatsApi, getChatMonthsApi, getChatExportHtmlApi } from "../../api/statsApi";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -41,8 +41,8 @@ import { describeError } from "../../api/axios";
 import TxDetailsSheet from "../../components/chat/TxDetailsSheet";
 import {
   CARRY_FORWARD_ID,
-  conflictTx,
   isTxConflict,
+  latestTxFromError,
   personName,
   txStatusOf,
 } from "../../utils/transactions";
@@ -216,16 +216,35 @@ const ChatScreen = ({ route, navigation }: any) => {
     await cacheManager.remove(CACHE_KEYS.CHATS);
   };
 
-  // The other side changed the transaction after this user opened it: show
-  // the latest copy and ask them to check again instead of approving blindly.
-  const handleTxConflict = async (error: unknown) => {
-    const latest = conflictTx(error);
+  /**
+   * A failed verify/reject/delete may carry the server's latest copy of the
+   * transaction (400 already reviewed, 403, 409 changed). Refresh the row from
+   * it and explain what happened instead of leaving a stale card behind.
+   */
+  const handleTxError = async (error: any, fallback: string) => {
+    const latest = latestTxFromError(error);
     if (latest) dispatch(updateTx(latest));
-    Alert.alert(
-      "Transaction changed",
-      "The amount or details changed after you opened it. Please check it again.",
-    );
-    await invalidateChatCache();
+    if (isTxConflict(error)) {
+      Alert.alert(
+        "Transaction changed",
+        error?.response?.data?.message ||
+          "The amount or details changed after you opened it. Please check it again.",
+      );
+    } else if (latest && error?.response?.status === 400) {
+      Alert.alert(
+        "Already reviewed",
+        "Already reviewed — this transaction was updated.",
+      );
+    } else {
+      Alert.alert("Error", error?.response?.data?.message || fallback);
+    }
+    if (latest) {
+      try {
+        await invalidateChatCache();
+      } catch {
+        // Cache invalidation is best-effort here.
+      }
+    }
   };
 
   const handleVerify = async (tx: ITx) => {
@@ -234,11 +253,7 @@ const ChatScreen = ({ route, navigation }: any) => {
       dispatch(updateTx(response.data.txn));
       await invalidateChatCache();
     } catch (error: any) {
-      if (isTxConflict(error)) {
-        await handleTxConflict(error);
-        return;
-      }
-      Alert.alert("Error", error?.response?.data?.message || "Failed to verify");
+      await handleTxError(error, "Failed to verify");
     }
   };
 
@@ -263,11 +278,7 @@ const ChatScreen = ({ route, navigation }: any) => {
       dispatch(updateTx(response.data.txn));
       await invalidateChatCache();
     } catch (error: any) {
-      if (isTxConflict(error)) {
-        await handleTxConflict(error);
-      } else {
-        Alert.alert("Error", error?.response?.data?.message || "Failed to reject");
-      }
+      await handleTxError(error, "Failed to reject");
     } finally {
       setRejecting(false);
       setRejectModalVisible(false);
@@ -309,10 +320,7 @@ const ChatScreen = ({ route, navigation }: any) => {
               dispatch(removeTx(txnId));
               await invalidateChatCache();
             } catch (error: any) {
-              Alert.alert(
-                "Error",
-                error?.response?.data?.message || "Failed to delete",
-              );
+              await handleTxError(error, "Failed to delete");
             }
           },
         },
