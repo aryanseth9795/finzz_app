@@ -20,9 +20,7 @@ import dayjs from "dayjs";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
 import { getTxnsApi, verifyTxApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
-import { getChatStatsApi, getChatMonthsApi, getChatExportHtmlApi } from "../../api/statsApi";
-import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
+import { getChatStatsApi, getChatMonthsApi } from "../../api/statsApi";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
   setTransactions,
@@ -280,21 +278,13 @@ const ChatScreen = ({ route, navigation }: any) => {
     }
   };
 
-  const handleDownloadReport = async () => {
-    try {
-      const response = await getChatExportHtmlApi(chatId, selectedYear, selectedMonth);
-      const html = response.data?.html;
-      if (!html) throw new Error("No HTML returned from server");
-
-      const { uri } = await Print.printToFileAsync({ html });
-      await Sharing.shareAsync(uri, {
-        UTI: ".pdf",
-        mimeType: "application/pdf",
-      });
-    } catch (error) {
-      logger.error("PDF export failed", error);
-      Alert.alert("Could not create report", describeError(error));
-    }
+  const handleDownloadReport = () => {
+    navigation.navigate("ReportPreview", {
+      chatId,
+      year: selectedYear,
+      month: selectedMonth,
+      friendName: friend?.name,
+    });
   };
 
   const handleDelete = (txnId: string) => {
@@ -505,10 +495,12 @@ const ChatScreen = ({ route, navigation }: any) => {
             { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" },
           ]}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="View monthly report"
         >
-          <Ionicons name="download-outline" size={16} color={colors.primary} />
+          <Ionicons name="document-text-outline" size={16} color={colors.primary} />
           <Text style={[styles.downloadBtnText, { color: colors.primary }]}>
-            Download Report
+            View report
           </Text>
         </TouchableOpacity>
       </View>
