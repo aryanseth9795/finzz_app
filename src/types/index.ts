@@ -137,11 +137,16 @@ export interface INotification {
     | "txn_rejected"
     | "txn_reworked"
     | "txn_deleted"
+    | "txn_edited"
     | "pool_tx_added"
     | "pool_tx_verified"
     | "pool_member_added"
-    | "pool_member_removed";
-  sender: IUser;
+    | "pool_member_removed"
+    | "note_shared"
+    | "admin_broadcast"
+    | "admin_targeted";
+  /** Absent on admin broadcasts and targeted sends. */
+  sender?: IUser;
   title?: string;
   body?: string;
   data?: Record<string, unknown>;
