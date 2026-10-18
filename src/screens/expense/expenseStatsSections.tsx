@@ -25,20 +25,26 @@ import {
   pctChange,
   projectMonthEnd,
   savingsRate,
+  threeMonthAverageMonths,
   threeMonthAverageSpend,
   topConcentration,
   weekOfMonthTotals,
   weekdayTotals,
   weekendShare,
+  zeroFillTrend,
 } from "../../utils/expenseInsights";
-import DonutChart from "../../components/charts/DonutChart";
+import DonutChart, { DonutDatum } from "../../components/charts/DonutChart";
 import ProgressRing from "../../components/charts/ProgressRing";
 import AreaLineChart from "../../components/charts/AreaLineChart";
 import Sparkline from "../../components/charts/Sparkline";
 import CalendarHeatmap from "../../components/charts/CalendarHeatmap";
 import WeekdayBars from "../../components/charts/WeekdayBars";
 import DivergingBars from "../../components/charts/DivergingBars";
-import { daysInMonth } from "../../components/charts/calendar";
+import {
+  WEEKDAY_SHORT_MON_FIRST,
+  daysInMonth,
+} from "../../components/charts/calendar";
+import { formatAxisAmount } from "../../components/charts/scale";
 
 /** Text/icon colour on top of a solid brand-coloured fill. */
 export const ON_ACCENT = "#FFFFFF";
@@ -97,6 +103,24 @@ const dailyDebitMap = (
     out[d] = (out[d] ?? 0) + v;
   }
   return out;
+};
+
+/**
+ * The category an expense is reported under; mirrors the server's
+ * expenseCategoryOf: a leading "#tag" in the remarks wins ("#travel cab" ->
+ * "travel cab"), else the trimmed category, else "Other" (also for "-").
+ */
+const expenseCategoryOf = (e: {
+  remarks?: string | null;
+  category?: string | null;
+}): string => {
+  const tag =
+    typeof e.remarks === "string" ? /^#\s*(.+)/.exec(e.remarks) : null;
+  const tagged = tag ? tag[1].trim() : "";
+  if (tagged) return tagged;
+  const category = typeof e.category === "string" ? e.category.trim() : "";
+  if (category && category !== "-") return category;
+  return "Other";
 };
 
 // ------------------------------------------------------------------
@@ -404,10 +428,11 @@ export const ErrorState: React.FC<{
 // Hero
 // ------------------------------------------------------------------
 
-const DeltaChip: React.FC<{ change: number | null; goodWhenUp: boolean }> = ({
-  change,
-  goodWhenUp,
-}) => {
+const DeltaChip: React.FC<{
+  change: number | null;
+  goodWhenUp: boolean;
+  versus: string;
+}> = ({ change, goodWhenUp, versus }) => {
   const { theme } = useTheme();
   const { colors, fontSize } = theme;
   if (change === null || Math.round(Math.abs(change)) < 1) return null;
@@ -418,7 +443,7 @@ const DeltaChip: React.FC<{ change: number | null; goodWhenUp: boolean }> = ({
     <View
       style={[styles.deltaChip, { backgroundColor: withAlpha(tint, 0.14) }]}
       accessible
-      accessibilityLabel={`${up ? "Up" : "Down"} ${Math.round(Math.abs(change))} percent versus last month`}
+      accessibilityLabel={`${up ? "Up" : "Down"} ${Math.round(Math.abs(change))} percent versus ${versus}`}
     >
       <Ionicons name={up ? "arrow-up" : "arrow-down"} size={11} color={tint} />
       <Text
@@ -437,7 +462,8 @@ const HeroFigure: React.FC<{
   spark: number[];
   change: number | null;
   goodWhenUp: boolean;
-}> = ({ label, amount, color, spark, change, goodWhenUp }) => {
+  versus: string;
+}> = ({ label, amount, color, spark, change, goodWhenUp, versus }) => {
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing } = theme;
   return (
@@ -448,7 +474,7 @@ const HeroFigure: React.FC<{
           <Text style={{ color: colors.textSecondary, fontSize: fontSize.sm }}>
             {label}
           </Text>
-          <DeltaChip change={change} goodWhenUp={goodWhenUp} />
+          <DeltaChip change={change} goodWhenUp={goodWhenUp} versus={versus} />
         </View>
         <Text
           numberOfLines={1}
@@ -468,7 +494,13 @@ const HeroFigure: React.FC<{
   );
 };
 
-export const HeroSection: React.FC<{ stats: Stats }> = ({ stats }) => {
+export const HeroSection = React.memo(function HeroSection({
+  stats,
+  today,
+}: {
+  stats: Stats;
+  today: Date;
+}) {
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing } = theme;
   const s = stats.summary;
@@ -479,10 +511,25 @@ export const HeroSection: React.FC<{ stats: Stats }> = ({ stats }) => {
   const spend = s.totalDebits;
   const net = s.net;
   const rate = savingsRate(income, spend);
-  const mom = useMemo(() => monthOverMonth(trend, sel), [trend, sel]);
+  const mom = useMemo(
+    () => monthOverMonth(trend, sel, today),
+    [trend, sel, today],
+  );
+  const isCurrentMonth =
+    sel.year === today.getFullYear() && sel.month === today.getMonth() + 1;
+  const versus = isCurrentMonth ? "the same point last month" : "last month";
 
+  // Expense-only users have nothing to "overspend" against: stay neutral.
+  const noIncome = !(income > 0);
   const saved = net >= 0;
-  const headTint = saved ? colors.chart.positive : colors.chart.negative;
+  const headTint = noIncome
+    ? colors.text
+    : saved
+      ? colors.chart.positive
+      : colors.chart.negative;
+  const headline = noIncome
+    ? `Spent ${formatCurrency(spend)}`
+    : `${saved ? "Saved" : "Overspent"} ${formatCurrency(Math.abs(net))}`;
   const ringColor = rate !== null && rate < 0 ? colors.chart.negative : colors.chart.positive;
 
   return (
@@ -501,8 +548,7 @@ export const HeroSection: React.FC<{ stats: Stats }> = ({ stats }) => {
           marginTop: 2,
         }}
       >
-        {saved ? "Saved " : "Overspent "}
-        {formatCurrency(Math.abs(net))}
+        {headline}
       </Text>
 
       <View
@@ -527,6 +573,7 @@ export const HeroSection: React.FC<{ stats: Stats }> = ({ stats }) => {
             spark={trend.map((t) => t.debitTotal)}
             change={mom.spend}
             goodWhenUp={false}
+            versus={versus}
           />
           <HeroFigure
             label="Received"
@@ -535,6 +582,7 @@ export const HeroSection: React.FC<{ stats: Stats }> = ({ stats }) => {
             spark={trend.map((t) => t.creditTotal)}
             change={mom.income}
             goodWhenUp
+            versus={versus}
           />
         </View>
       </View>
@@ -551,31 +599,41 @@ export const HeroSection: React.FC<{ stats: Stats }> = ({ stats }) => {
       ) : null}
     </Card>
   );
-};
+});
 
 // ------------------------------------------------------------------
 // Pace
 // ------------------------------------------------------------------
 
-export const PaceSection: React.FC<{
+export const PaceSection = React.memo(function PaceSection({
+  stats,
+  today,
+  chartWidth,
+}: {
   stats: Stats;
   today: Date;
   chartWidth: number;
-}> = ({ stats, today, chartWidth }) => {
+}) {
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing } = theme;
   const sel = stats.selectedMonth;
   const spend = stats.summary.totalDebits;
   const dim = daysInMonth(sel.year, sel.month);
 
-  const proj = useMemo(
-    () => projectMonthEnd(spend, sel, today),
-    [spend, sel, today],
-  );
   const avg = useMemo(
     () => threeMonthAverageSpend(stats.monthlyTrend ?? [], sel),
     [stats.monthlyTrend, sel],
   );
+  const avgMonths = useMemo(
+    () => threeMonthAverageMonths(stats.monthlyTrend ?? [], sel),
+    [stats.monthlyTrend, sel],
+  );
+  const avgName = `your ${avgMonths}-month average`;
+  const proj = useMemo(
+    () => projectMonthEnd(spend, sel, today, avg),
+    [spend, sel, today, avg],
+  );
+  const tooEarly = proj.tooEarly === true;
 
   const series = useMemo(
     () =>
@@ -588,11 +646,13 @@ export const PaceSection: React.FC<{
     [stats.dailyBreakdown, sel, proj.isCurrentMonth, proj.daysElapsed],
   );
 
-  const diff = avg !== null ? pctChange(proj.projected, avg) : null;
+  const diff =
+    avg !== null && !tooEarly ? pctChange(proj.projected, avg) : null;
   const compareLine = useMemo(
-    () => new Array<number>(dim).fill(avg ?? 0),
+    () => (avg !== null ? new Array<number>(dim).fill(avg) : undefined),
     [dim, avg],
   );
+  const showProjection = proj.isCurrentMonth && !tooEarly;
 
   const xLabels = (i: number): string | null => {
     const day = i + 1;
@@ -604,23 +664,28 @@ export const PaceSection: React.FC<{
   let headline: string;
   let detail: string;
   let tint = colors.textSecondary;
-  headline = proj.isCurrentMonth
-    ? `On pace for ${formatCurrency(proj.projected)}`
-    : `Spent ${formatCurrency(spend)}`;
-  if (diff === null || avg === null) {
+  headline = tooEarly
+    ? `Too early to project — ${formatCurrency(spend)} spent so far`
+    : proj.isCurrentMonth
+      ? `On pace for ${formatCurrency(proj.projected)}`
+      : `Spent ${formatCurrency(spend)}`;
+  if (avg === null) {
     detail = "No earlier months to compare against yet.";
+  } else if (diff === null) {
+    detail = `${avgName[0].toUpperCase()}${avgName.slice(1)} is ${formatCurrency(avg)}`;
   } else {
     const abs = Math.round(Math.abs(diff));
     if (abs < 1) {
-      detail = `In line with your 3-month average of ${formatCurrency(avg)}`;
+      detail = `In line with ${avgName} of ${formatCurrency(avg)}`;
     } else {
       const dir = diff > 0 ? "above" : "below";
       detail = proj.isCurrentMonth
-        ? `${abs}% ${dir} your 3-month average of ${formatCurrency(avg)}`
-        : `${abs}% ${dir} your 3-month average`;
+        ? `${abs}% ${dir} ${avgName} of ${formatCurrency(avg)}`
+        : `${abs}% ${dir} ${avgName}`;
       tint = diff > 0 ? colors.chart.negative : colors.chart.positive;
     }
   }
+  const avgShort = `${avgMonths}-mo avg`;
 
   return (
     <Card>
@@ -650,10 +715,9 @@ export const PaceSection: React.FC<{
       <AreaLineChart
         series={series}
         compare={proj.isCurrentMonth ? compareLine : undefined}
-        compareColor={
-          avg === null ? withAlpha(colors.chart.axis, 0) : colors.chart.axis
-        }
-        projectionTo={proj.isCurrentMonth ? proj.projected : undefined}
+        compareColor={colors.chart.axis}
+        compareLabel={avgShort}
+        projectionTo={showProjection ? proj.projected : undefined}
         width={chartWidth}
         height={190}
         xLabels={xLabels}
@@ -662,15 +726,15 @@ export const PaceSection: React.FC<{
       <View style={[styles.legendRow, { marginTop: spacing.sm }]}>
         <LegendDot color={colors.chart.spend} label="Spent so far" />
         {proj.isCurrentMonth && avg !== null ? (
-          <LegendDash color={colors.chart.axis} label="3-mo avg" />
+          <LegendDash color={colors.chart.axis} label={avgShort} />
         ) : null}
-        {proj.isCurrentMonth ? (
+        {showProjection ? (
           <LegendDash color={colors.chart.spend} label="Projected" />
         ) : null}
       </View>
     </Card>
   );
-};
+});
 
 // ------------------------------------------------------------------
 // Insights
@@ -686,9 +750,11 @@ const INSIGHT_ICON: Record<string, React.ComponentProps<typeof Ionicons>["name"]
   noSpend: "leaf-outline",
 };
 
-export const InsightsSection: React.FC<{ insights: ExpenseInsight[] }> = ({
+export const InsightsSection = React.memo(function InsightsSection({
   insights,
-}) => {
+}: {
+  insights: ExpenseInsight[];
+}) {
   const { theme } = useTheme();
   const { colors, fontSize, spacing, borderRadius } = theme;
   if (insights.length === 0) return null;
@@ -755,7 +821,7 @@ export const InsightsSection: React.FC<{ insights: ExpenseInsight[] }> = ({
       </View>
     </View>
   );
-};
+});
 
 // ------------------------------------------------------------------
 // Where it went
@@ -769,22 +835,36 @@ interface CategoryRow {
 }
 
 const TOP_CATEGORIES = 7;
+/** Slices below this share (percent) are folded into "Others". */
+const MIN_SLICE_PCT = 1;
 
-export const CategoriesSection: React.FC<{ stats: Stats }> = ({ stats }) => {
+export const CategoriesSection = React.memo(function CategoriesSection({
+  stats,
+}: {
+  stats: Stats;
+}) {
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing, borderRadius } = theme;
   const palette = colors.chart.categorical;
   const [selected, setSelected] = useState<number | null>(null);
 
-  const categories = stats.categoryBreakdown ?? [];
+  const categories = stats.categoryBreakdown;
   const totalSpend = stats.summary.totalDebits;
 
   const { rows, catSum, concentration } = useMemo(() => {
-    const sorted = [...categories]
+    const sorted = [...(categories ?? [])]
       .filter((c) => Number.isFinite(c.total) && c.total > 0)
       .sort((a, b) => b.total - a.total);
-    const top = sorted.slice(0, TOP_CATEGORIES);
-    const rest = sorted.slice(TOP_CATEGORIES);
+    const sum = sorted.reduce((a, c) => a + c.total, 0);
+    // Sorted descending, so the slices under 1% are a suffix: cut at the
+    // first one (or at TOP_CATEGORIES) and fold the rest into "Others".
+    let cut = Math.min(sorted.length, TOP_CATEGORIES);
+    const firstTiny = sorted.findIndex(
+      (c) => sum > 0 && (c.total / sum) * 100 < MIN_SLICE_PCT,
+    );
+    if (firstTiny !== -1 && firstTiny < cut) cut = firstTiny;
+    const top = sorted.slice(0, cut);
+    const rest = sorted.slice(cut);
     const trendByName = new Map<string, number[]>();
     for (const t of stats.categoryTrend ?? []) {
       trendByName.set(
@@ -808,13 +888,24 @@ export const CategoriesSection: React.FC<{ stats: Stats }> = ({ stats }) => {
     }
     return {
       rows: out,
-      catSum: sorted.reduce((a, c) => a + c.total, 0),
+      catSum: sum,
       concentration: topConcentration(sorted, 3),
     };
   }, [categories, stats.categoryTrend]);
 
   // The data (and so the donut) can change under a held selection.
-  useEffect(() => setSelected(null), [rows.length, stats.selectedMonth.month, stats.selectedMonth.year]);
+  useEffect(() => setSelected(null), [rows]);
+
+  // Same array, same order as the list, so donut index === row index.
+  const donutData = useMemo<DonutDatum[]>(
+    () =>
+      rows.map((r, i) => ({
+        label: r.name,
+        value: r.total,
+        color: palette[i % palette.length],
+      })),
+    [rows, palette],
+  );
 
   const maxTotal = Math.max(1, ...rows.map((r) => r.total));
 
@@ -832,15 +923,12 @@ export const CategoriesSection: React.FC<{ stats: Stats }> = ({ stats }) => {
         <>
           <View style={{ alignItems: "center", marginBottom: spacing.lg }}>
             <DonutChart
-              data={rows.map((r, i) => ({
-                label: r.name,
-                value: r.total,
-                color: palette[i % palette.length],
-              }))}
+              data={donutData}
               size={210}
               thickness={24}
               centerLabel="Spent"
               centerValue={formatCurrency(totalSpend)}
+              selectedIndex={selected}
               onSelect={setSelected}
             />
           </View>
@@ -950,16 +1038,19 @@ export const CategoriesSection: React.FC<{ stats: Stats }> = ({ stats }) => {
       )}
     </Card>
   );
-};
+});
 
 // ------------------------------------------------------------------
 // Daily rhythm
 // ------------------------------------------------------------------
 
-export const DailyRhythmSection: React.FC<{
+export const DailyRhythmSection = React.memo(function DailyRhythmSection({
+  stats,
+  today,
+}: {
   stats: Stats;
   today: Date;
-}> = ({ stats, today }) => {
+}) {
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing } = theme;
   const sel = stats.selectedMonth;
@@ -975,6 +1066,7 @@ export const DailyRhythmSection: React.FC<{
     () => projectMonthEnd(stats.summary.totalDebits, sel, today),
     [stats.summary.totalDebits, sel, today],
   );
+  // Passing today excludes it (it is not over yet), matching the insight.
   const ns = useMemo(
     () =>
       noSpendStats(
@@ -982,8 +1074,9 @@ export const DailyRhythmSection: React.FC<{
         sel.year,
         sel.month,
         proj.daysElapsed,
+        today,
       ),
-    [stats.dailyBreakdown, sel, proj.daysElapsed],
+    [stats.dailyBreakdown, sel, proj.daysElapsed, today],
   );
 
   const caption =
@@ -1034,24 +1127,41 @@ export const DailyRhythmSection: React.FC<{
       </View>
     </Card>
   );
-};
+});
 
 // ------------------------------------------------------------------
 // Weekly pattern
 // ------------------------------------------------------------------
 
 const WEEK_ALPHAS = [0.35, 0.5, 0.65, 0.8, 1];
+// Sunday-first weekdayTotals index for each Monday-first slot.
+const MON_FIRST_SRC = [1, 2, 3, 4, 5, 6, 0];
 
-export const WeeklyPatternSection: React.FC<{ stats: Stats }> = ({
+export const WeeklyPatternSection = React.memo(function WeeklyPatternSection({
   stats,
-}) => {
+}: {
+  stats: Stats;
+}) {
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing, borderRadius } = theme;
-  const daily = stats.dailyBreakdown ?? [];
+  const daily = stats.dailyBreakdown;
 
-  const totals = useMemo(() => weekdayTotals(daily), [daily]);
-  const weekend = useMemo(() => weekendShare(daily), [daily]);
-  const weeks = useMemo(() => weekOfMonthTotals(daily), [daily]);
+  const totals = useMemo(() => weekdayTotals(daily ?? []), [daily]);
+  const weekend = useMemo(() => weekendShare(daily ?? []), [daily]);
+  const weeks = useMemo(() => weekOfMonthTotals(daily ?? []), [daily]);
+  const weekdaySummary = useMemo(() => {
+    const values = MON_FIRST_SRC.map((src) =>
+      Number.isFinite(totals[src]) && totals[src] > 0 ? totals[src] : 0,
+    );
+    const max = Math.max(...values);
+    if (max <= 0) return "No weekday spending data";
+    const parts = WEEKDAY_SHORT_MON_FIRST.map(
+      (d, i) => `${d} ${formatCurrency(values[i])}`,
+    ).join(", ");
+    return `Spending by weekday. ${parts}. Peak day ${
+      WEEKDAY_SHORT_MON_FIRST[values.indexOf(max)]
+    }`;
+  }, [totals]);
   const weekSum = weeks.reduce((a, b) => a + b, 0);
   const ramp = WEEK_ALPHAS.map((a) => withAlpha(colors.chart.spend, a));
 
@@ -1061,11 +1171,16 @@ export const WeeklyPatternSection: React.FC<{ stats: Stats }> = ({
         title="Weekly pattern"
         subtitle="When your money moves"
       />
-      <WeekdayBars
-        totals={totals}
-        highlightWeekend
-        formatter={formatCurrency}
-      />
+      {/* Bar labels are compact; the spoken summary keeps full amounts. */}
+      <View accessible accessibilityLabel={weekdaySummary}>
+        <View importantForAccessibility="no-hide-descendants">
+          <WeekdayBars
+            totals={totals}
+            highlightWeekend
+            formatter={formatAxisAmount}
+          />
+        </View>
+      </View>
       <Text
         style={{
           color: colors.textSecondary,
@@ -1166,27 +1281,39 @@ export const WeeklyPatternSection: React.FC<{ stats: Stats }> = ({
       </View>
     </Card>
   );
-};
+});
 
 // ------------------------------------------------------------------
 // 12-month trend
 // ------------------------------------------------------------------
 
-export const TrendSection: React.FC<{ stats: Stats }> = ({ stats }) => {
+export const TrendSection = React.memo(function TrendSection({
+  stats,
+  today,
+}: {
+  stats: Stats;
+  today: Date;
+}) {
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing } = theme;
-  const trend = stats.monthlyTrend ?? [];
+  const trend = stats.monthlyTrend;
+  const sel = stats.selectedMonth;
 
+  // Exactly 12 bars ending at the selected month, gaps zero-filled.
   const data = useMemo(
     () =>
-      trend.map((t) => ({
-        label: MONTH_SHORT[t.monthNum - 1] ?? t.month,
+      zeroFillTrend(trend ?? [], sel).map((t) => ({
+        label: t.label,
         income: t.creditTotal,
         spend: t.debitTotal,
       })),
-    [trend],
+    [trend, sel],
   );
-  const { bestNet, worstNet } = useMemo(() => bestWorstMonth(trend), [trend]);
+  const { bestNet, worstNet } = useMemo(
+    // Skips the current, still-partial month.
+    () => bestWorstMonth(trend ?? [], today),
+    [trend, today],
+  );
 
   const fmt = (m: { monthNum: number; year: number; net: number }) =>
     `${MONTH_SHORT[m.monthNum - 1]} ${String(m.year).slice(2)} (${
@@ -1239,13 +1366,17 @@ export const TrendSection: React.FC<{ stats: Stats }> = ({ stats }) => {
       ) : null}
     </Card>
   );
-};
+});
 
 // ------------------------------------------------------------------
 // Big tickets
 // ------------------------------------------------------------------
 
-export const BigTicketsSection: React.FC<{ stats: Stats }> = ({ stats }) => {
+export const BigTicketsSection = React.memo(function BigTicketsSection({
+  stats,
+}: {
+  stats: Stats;
+}) {
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing, borderRadius } = theme;
 
@@ -1335,27 +1466,25 @@ export const BigTicketsSection: React.FC<{ stats: Stats }> = ({ stats }) => {
                   />
                 </View>
                 <View style={[styles.row, { gap: spacing.sm, marginTop: 6 }]}>
-                  {e.category ? (
-                    <View
+                  <View
+                    style={{
+                      backgroundColor: colors.chart.track,
+                      borderRadius: borderRadius.full,
+                      paddingHorizontal: spacing.sm,
+                      paddingVertical: 2,
+                    }}
+                  >
+                    <Text
+                      numberOfLines={1}
                       style={{
-                        backgroundColor: colors.chart.track,
-                        borderRadius: borderRadius.full,
-                        paddingHorizontal: spacing.sm,
-                        paddingVertical: 2,
+                        color: colors.textSecondary,
+                        fontSize: fontSize.xs,
+                        fontWeight: fontWeight.medium,
                       }}
                     >
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          color: colors.textSecondary,
-                          fontSize: fontSize.xs,
-                          fontWeight: fontWeight.medium,
-                        }}
-                      >
-                        {e.category}
-                      </Text>
-                    </View>
-                  ) : null}
+                      {expenseCategoryOf(e)}
+                    </Text>
+                  </View>
                   <Text
                     style={{
                       color: colors.textTertiary,
@@ -1372,7 +1501,7 @@ export const BigTicketsSection: React.FC<{ stats: Stats }> = ({ stats }) => {
       )}
     </Card>
   );
-};
+});
 
 // ------------------------------------------------------------------
 

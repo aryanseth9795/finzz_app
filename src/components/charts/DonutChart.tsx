@@ -16,6 +16,12 @@ interface DonutChartProps {
   thickness?: number;
   centerLabel?: string;
   centerValue?: string;
+  /**
+   * Controlled selection. When defined (including null), the parent owns the
+   * selection and must update it from onSelect; when undefined, the chart
+   * keeps its own.
+   */
+  selectedIndex?: number | null;
   onSelect?: (index: number | null) => void;
 }
 
@@ -30,12 +36,16 @@ const DonutChart: React.FC<DonutChartProps> = ({
   thickness = 22,
   centerLabel,
   centerValue,
+  selectedIndex,
   onSelect,
 }) => {
   const { theme } = useTheme();
   const { colors, fontSize } = theme;
   const palette = colors.chart.categorical;
-  const [selected, setSelected] = useState<number | null>(null);
+  const [ownSelected, setOwnSelected] = useState<number | null>(null);
+  const controlled = selectedIndex !== undefined;
+  const selected: number | null =
+    selectedIndex !== undefined ? selectedIndex : ownSelected;
 
   const segments = useMemo(
     () => donutSegments(data.map((d) => (d.value > 0 ? d.value : 0))),
@@ -44,10 +54,12 @@ const DonutChart: React.FC<DonutChartProps> = ({
 
   // Drop a stale selection when the data changes under us.
   useEffect(() => {
-    setSelected((s) =>
-      s !== null && !segments.some((seg) => seg.index === s) ? null : s,
-    );
-  }, [segments]);
+    if (selected === null || segments.some((seg) => seg.index === selected)) {
+      return;
+    }
+    if (controlled) onSelect?.(null);
+    else setOwnSelected(null);
+  }, [segments, selected, controlled, onSelect]);
 
   const c = size / 2;
   const r = (size - thickness - GROW * 2) / 2;
@@ -55,7 +67,7 @@ const DonutChart: React.FC<DonutChartProps> = ({
 
   const handlePress = (index: number) => {
     const next = selected === index ? null : index;
-    setSelected(next);
+    if (!controlled) setOwnSelected(next);
     onSelect?.(next);
   };
 

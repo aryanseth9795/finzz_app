@@ -31,6 +31,8 @@ export interface AreaLineChartProps {
   height?: number;
   color?: string;
   compareColor?: string;
+  /** Tooltip prefix for the compare value, e.g. "3-mo avg". */
+  compareLabel?: string;
   /** Label for x tick i, or null to skip. */
   xLabels?: (i: number) => string | null;
   valueFormatter?: (n: number) => string;
@@ -48,6 +50,7 @@ export const AreaLineChart: React.FC<AreaLineChartProps> = ({
   height = 200,
   color,
   compareColor,
+  compareLabel = "Last",
   xLabels,
   valueFormatter = formatAxisAmount,
 }) => {
@@ -301,7 +304,7 @@ export const AreaLineChart: React.FC<AreaLineChartProps> = ({
           </Text>
           {activeCmp !== null && (
             <Text style={{ color: colors.chart.axis, fontSize: fontSize.xs }}>
-              Last: {valueFormatter(activeCmp)}
+              {compareLabel}: {valueFormatter(activeCmp)}
             </Text>
           )}
         </View>

@@ -243,13 +243,13 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
         {error ? (
           <ErrorState compact message={error} onRetry={() => loadStats("refresh")} />
         ) : null}
-        <HeroSection stats={stats} />
+        <HeroSection stats={stats} today={today} />
         <PaceSection stats={stats} today={today} chartWidth={chartWidth} />
         <InsightsSection insights={insights} />
         <CategoriesSection stats={stats} />
         <DailyRhythmSection stats={stats} today={today} />
         <WeeklyPatternSection stats={stats} />
-        <TrendSection stats={stats} />
+        <TrendSection stats={stats} today={today} />
         <BigTicketsSection stats={stats} />
         <Text
           style={{
