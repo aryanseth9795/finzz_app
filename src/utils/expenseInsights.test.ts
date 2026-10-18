@@ -10,11 +10,13 @@ import {
   pctChange,
   projectMonthEnd,
   savingsRate,
+  threeMonthAverageMonths,
   threeMonthAverageSpend,
   topConcentration,
   weekdayTotals,
   weekendShare,
   weekOfMonthTotals,
+  zeroFillTrend,
 } from "./expenseInsights";
 
 type Trend = IAdvancedExpenseStats["monthlyTrend"];
@@ -94,6 +96,25 @@ describe("monthOverMonth", () => {
     const r = monthOverMonth([t(2026, 8, 1000, 0), t(2026, 10, 500, 0)], { year: 2026, month: 10 });
     expect(r.spend).toBeNull();
   });
+  it("pro-rates the previous month when the selected month is the current one", () => {
+    // 10th of October; September (30 days) spent 30000, October so far 10000.
+    const trend = [t(2026, 9, 30000, 60000), t(2026, 10, 10000, 20000)];
+    const r = monthOverMonth(trend, { year: 2026, month: 10 }, new Date(2026, 9, 10));
+    expect(r.spend).toBeCloseTo(0, 10);
+    expect(r.income).toBeCloseTo(0, 10);
+    expect(r.net).toBeCloseTo(0, 10);
+    // without `today` it is the raw calendar comparison (-66.7%)
+    expect(monthOverMonth(trend, { year: 2026, month: 10 }).spend).toBeCloseTo(-66.67, 1);
+  });
+  it("does not pro-rate a past month", () => {
+    const trend = [t(2026, 8, 1000, 0), t(2026, 9, 1500, 0)];
+    expect(monthOverMonth(trend, { year: 2026, month: 9 }, new Date(2026, 9, 10)).spend).toBe(50);
+  });
+  it("caps the pro-rating factor at a full previous month", () => {
+    // 31 Oct vs a 30-day September: factor capped at 1
+    const trend = [t(2026, 9, 3000, 0), t(2026, 10, 3000, 0)];
+    expect(monthOverMonth(trend, { year: 2026, month: 10 }, new Date(2026, 9, 31)).spend).toBe(0);
+  });
   it("January looks at the previous December", () => {
     const r = monthOverMonth([t(2025, 12, 200, 100), t(2026, 1, 300, 100)], {
       year: 2026,
@@ -109,9 +130,10 @@ describe("threeMonthAverageSpend", () => {
     const trend = [t(2026, 7, 300, 0), t(2026, 8, 600, 0), t(2026, 9, 900, 0), t(2026, 10, 5000, 0)];
     expect(threeMonthAverageSpend(trend, { year: 2026, month: 10 })).toBe(600);
   });
-  it("counts missing months as 0", () => {
+  it("divides by the number of months present, not by 3", () => {
     const trend = [t(2026, 9, 900, 0)];
-    expect(threeMonthAverageSpend(trend, { year: 2026, month: 10 })).toBe(300);
+    expect(threeMonthAverageSpend(trend, { year: 2026, month: 10 })).toBe(900);
+    expect(threeMonthAverageSpend([t(2026, 7, 300, 0), t(2026, 9, 900, 0)], { year: 2026, month: 10 })).toBe(600);
   });
   it("is null when all three are missing", () => {
     expect(threeMonthAverageSpend([t(2026, 10, 100, 0)], { year: 2026, month: 10 })).toBeNull();
@@ -120,7 +142,21 @@ describe("threeMonthAverageSpend", () => {
   it("wraps across the year boundary", () => {
     const trend = [t(2025, 10, 300, 0), t(2025, 11, 300, 0), t(2025, 12, 300, 0)];
     expect(threeMonthAverageSpend(trend, { year: 2026, month: 1 })).toBe(300);
-    expect(threeMonthAverageSpend(trend, { year: 2026, month: 2 })).toBe(200);
+    expect(threeMonthAverageSpend(trend, { year: 2026, month: 2 })).toBe(300);
+  });
+});
+
+describe("threeMonthAverageMonths", () => {
+  it("counts the months that were averaged", () => {
+    const trend = [t(2026, 7, 300, 0), t(2026, 8, 600, 0), t(2026, 9, 900, 0), t(2026, 10, 5000, 0)];
+    expect(threeMonthAverageMonths(trend, { year: 2026, month: 10 })).toBe(3);
+    expect(threeMonthAverageMonths([t(2026, 7, 1, 0), t(2026, 9, 1, 0)], { year: 2026, month: 10 })).toBe(2);
+    expect(threeMonthAverageMonths([t(2026, 10, 1, 0)], { year: 2026, month: 10 })).toBe(0);
+    expect(threeMonthAverageMonths([], { year: 2026, month: 10 })).toBe(0);
+  });
+  it("wraps across the year boundary", () => {
+    const trend = [t(2025, 11, 300, 0), t(2025, 12, 300, 0)];
+    expect(threeMonthAverageMonths(trend, { year: 2026, month: 2 })).toBe(2);
   });
 });
 
@@ -151,8 +187,32 @@ describe("projectMonthEnd", () => {
     expect(r.daysElapsed).toBe(0);
   });
   it("rounds the projection to paise", () => {
-    const r = projectMonthEnd(100, { year: 2026, month: 10 }, new Date(2026, 9, 3));
-    expect(r.projected).toBe(1033.33);
+    // 100 + (100/7) * 24 = 442.857...
+    const r = projectMonthEnd(100, { year: 2026, month: 10 }, new Date(2026, 9, 7));
+    expect(r.projected).toBe(442.86);
+  });
+  it("does not extrapolate a day-1 rent payment (under 7 days uses the 3-month rate)", () => {
+    // 15000 rent on 1 Oct, 30k average: 15000 + 30000/31 * 30 = 44032.26
+    const r = projectMonthEnd(15000, { year: 2026, month: 10 }, new Date(2026, 9, 1), 30000);
+    expect(r.projected).toBeLessThanOrEqual(45000);
+    expect(r.projected).toBe(44032.26);
+    expect(r.tooEarly).toBeUndefined();
+    expect(r.isCurrentMonth).toBe(true);
+  });
+  it("is too early under 7 days without a 3-month average", () => {
+    const r = projectMonthEnd(15000, { year: 2026, month: 10 }, new Date(2026, 9, 6));
+    expect(r).toEqual({ projected: 15000, daysElapsed: 6, daysInMonth: 31, isCurrentMonth: true, tooEarly: true });
+    expect(projectMonthEnd(15000, { year: 2026, month: 10 }, new Date(2026, 9, 6), null).tooEarly).toBe(true);
+  });
+  it("from day 7 uses the higher of the 3-month rate and the recent rate", () => {
+    // day 7, slow month: recent 700/7 = 100/day < 31000/31 = 1000/day -> 700 + 1000*24
+    expect(projectMonthEnd(700, { year: 2026, month: 10 }, new Date(2026, 9, 7), 31000).projected).toBe(24700);
+    // day 10, fast month: recent 20000/10 = 2000/day > 1000/day -> 20000 + 2000*21
+    expect(projectMonthEnd(20000, { year: 2026, month: 10 }, new Date(2026, 9, 10), 31000).projected).toBe(62000);
+  });
+  it("ignores the average for past months", () => {
+    const r = projectMonthEnd(5, { year: 2026, month: 9 }, new Date(2026, 9, 2), 30000);
+    expect(r).toEqual({ projected: 5, daysElapsed: 30, daysInMonth: 30, isCurrentMonth: false });
   });
 });
 
@@ -196,6 +256,23 @@ describe("noSpendStats", () => {
   });
   it("ignores other months", () => {
     expect(noSpendStats([d("2026-09-02", 50)], 2026, 10, 5)).toEqual({ noSpendDays: 5, longestStreak: 5 });
+  });
+  it("excludes today for the current month", () => {
+    // 10 Oct: only days 1..9 count; spend on day 2
+    const daily = [d("2026-10-02", 10)];
+    expect(noSpendStats(daily, 2026, 10, 10, new Date(2026, 9, 10))).toEqual({ noSpendDays: 8, longestStreak: 7 });
+    expect(noSpendStats(daily, 2026, 10, undefined, new Date(2026, 9, 10))).toEqual({
+      noSpendDays: 8,
+      longestStreak: 7,
+    });
+    // day 1: nothing has finished yet
+    expect(noSpendStats([], 2026, 10, 1, new Date(2026, 9, 1))).toEqual({ noSpendDays: 0, longestStreak: 0 });
+  });
+  it("does not trim a past month when today is given", () => {
+    expect(noSpendStats([], 2026, 9, undefined, new Date(2026, 9, 10))).toEqual({
+      noSpendDays: 30,
+      longestStreak: 30,
+    });
   });
   it("is zero when every day has spend", () => {
     const daily = [d("2026-02-01", 1), d("2026-02-02", 1)];
@@ -286,6 +363,58 @@ describe("bestWorstMonth", () => {
     expect(r.bestNet?.net).toBe(400);
     expect(r.worstNet?.net).toBe(400);
   });
+  it("excludes the current partial month when today is given", () => {
+    const trend = [t(2026, 8, 100, 500), t(2026, 9, 900, 500), t(2026, 10, 0, 9000)];
+    const r = bestWorstMonth(trend, new Date(2026, 9, 5));
+    expect(r.bestNet).toMatchObject({ year: 2026, monthNum: 8, net: 400 });
+    expect(r.worstNet).toMatchObject({ year: 2026, monthNum: 9, net: -400 });
+    expect(bestWorstMonth([t(2026, 10, 0, 9000)], new Date(2026, 9, 5))).toEqual({ bestNet: null, worstNet: null });
+    // without today the current month still counts (old behaviour)
+    expect(bestWorstMonth(trend).bestNet?.monthNum).toBe(10);
+  });
+});
+
+describe("zeroFillTrend", () => {
+  it("returns exactly 12 entries ending at the selected month, zero-filling gaps", () => {
+    const trend = [t(2026, 3, 100, 200), t(2026, 10, 50, 0), t(2025, 9, 999, 0)];
+    const out = zeroFillTrend(trend, { year: 2026, month: 10 });
+    expect(out).toHaveLength(12);
+    expect(out[0]).toMatchObject({ year: 2025, monthNum: 11, month: "2025-11", label: "Nov '25" });
+    expect(out[11]).toEqual({
+      year: 2026,
+      monthNum: 10,
+      month: "2026-10",
+      label: "Oct",
+      debitTotal: 50,
+      creditTotal: 0,
+      net: -50,
+    });
+    const mar = out.find((m) => m.monthNum === 3);
+    expect(mar).toMatchObject({ label: "Mar", debitTotal: 100, creditTotal: 200, net: 100 });
+    const jul = out.find((m) => m.monthNum === 7);
+    expect(jul).toMatchObject({ debitTotal: 0, creditTotal: 0, net: 0 });
+    // the Sep 2025 row is outside the window
+    expect(out.some((m) => m.year === 2025 && m.monthNum === 9)).toBe(false);
+    expect(out.map((m) => m.label)).toEqual([
+      "Nov '25",
+      "Dec '25",
+      "Jan",
+      "Feb",
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+    ]);
+  });
+  it("honours a custom length and pads the year label to 2 digits", () => {
+    const out = zeroFillTrend([], { year: 2009, month: 2 }, 3);
+    expect(out.map((m) => m.label)).toEqual(["Dec '08", "Jan", "Feb"]);
+    expect(zeroFillTrend(undefined as unknown as Trend, { year: 2026, month: 1 })).toHaveLength(12);
+  });
 });
 
 describe("buildExpenseInsights", () => {
@@ -342,7 +471,7 @@ describe("buildExpenseInsights", () => {
   it("builds sentences for a past month, with no pace line", () => {
     const out = buildExpenseInsights(past(), new Date(2026, 9, 17));
     const texts = out.map((i) => i.text);
-    expect(texts[0]).toBe("You saved 23% of your income this month.");
+    expect(texts[0]).toBe("You saved 23% of your income in September.");
     expect(out[0].tone).toBe("positive");
     expect(texts.some((x) => x.includes("On pace"))).toBe(false);
     expect(texts).toContain("Food is your biggest category at 50% of spending.");
@@ -361,7 +490,30 @@ describe("buildExpenseInsights", () => {
     s.summary.net = -2000;
     const out = buildExpenseInsights(s, new Date(2026, 9, 17));
     expect(out[0].tone).toBe("negative");
-    expect(out[0].text).toBe("You spent more than you earned this month.");
+    expect(out[0].text).toBe("You spent 1.2× your income in September.");
+  });
+
+  it("states a negative savings rate as a multiple of income", () => {
+    const s = past();
+    s.summary.totalDebits = 25000;
+    expect(buildExpenseInsights(s, new Date(2026, 9, 17))[0].text).toBe("You spent 2.5× your income in September.");
+    s.summary.totalDebits = 20000;
+    expect(buildExpenseInsights(s, new Date(2026, 9, 17))[0].text).toBe("You spent 2× your income in September.");
+    // a marginal overspend that rounds to 1.0x keeps the plain sentence
+    s.summary.totalDebits = 10300;
+    expect(buildExpenseInsights(s, new Date(2026, 9, 17))[0].text).toBe(
+      "You spent more than you earned in September.",
+    );
+  });
+
+  it("says 'this month' for the current month", () => {
+    const s = past();
+    s.selectedMonth = { year: 2026, month: 10 };
+    s.dailyBreakdown = [];
+    s.monthlyTrend = [];
+    expect(buildExpenseInsights(s, new Date(2026, 9, 17))[0].text).toBe("You saved 23% of your income this month.");
+    s.summary.totalDebits = 25000;
+    expect(buildExpenseInsights(s, new Date(2026, 9, 17))[0].text).toBe("You spent 2.5× your income this month.");
   });
 
   it("omits the savings line when income is zero", () => {
@@ -399,13 +551,13 @@ describe("buildExpenseInsights", () => {
   it("says below the average with a positive tone", () => {
     const s: IAdvancedExpenseStats = {
       ...empty(2026, 10),
-      summary: { ...empty(2026, 10).summary, totalDebits: 5000, totalCredits: 0 },
-      dailyBreakdown: [d("2026-10-02", 5000)],
-      monthlyTrend: [t(2026, 7, 40000, 0), t(2026, 8, 40000, 0), t(2026, 9, 40000, 0)],
+      summary: { ...empty(2026, 10).summary, totalDebits: 3100, totalCredits: 0 },
+      dailyBreakdown: [d("2026-10-02", 3100)],
+      monthlyTrend: [t(2026, 7, 31000, 0), t(2026, 8, 31000, 0), t(2026, 9, 31000, 0)],
     };
-    // projected 5000/10*31 = 15500; avg 40000 -> 61.25% below -> 61%
+    // day 10: recent 310/day < avg 1000/day -> 3100 + 1000*21 = 24100; vs 31000 -> 22.26% below
     const pace = buildExpenseInsights(s, new Date(2026, 9, 10)).find((i) => i.kind === "pace");
-    expect(pace?.text).toBe("On pace to spend ₹15,500 this month — 61% below your 3-month average.");
+    expect(pace?.text).toBe("On pace to spend ₹24,100 this month — 22% below your 3-month average.");
     expect(pace?.tone).toBe("positive");
   });
 
@@ -420,6 +572,73 @@ describe("buildExpenseInsights", () => {
     expect(pace?.tone).toBe("neutral");
   });
 
+  it("words the average by the number of months present", () => {
+    const s: IAdvancedExpenseStats = {
+      ...empty(2026, 10),
+      summary: { ...empty(2026, 10).summary, totalDebits: 20000, totalCredits: 0 },
+      dailyBreakdown: [d("2026-10-02", 20000)],
+      monthlyTrend: [t(2026, 8, 10000, 0), t(2026, 9, 10000, 0)],
+    };
+    // day 10: avg 10000 over 2 months; recent 2000/day -> 20000 + 2000*21 = 62000 -> 520% above
+    const pace = buildExpenseInsights(s, new Date(2026, 9, 10)).find((i) => i.kind === "pace");
+    expect(pace?.text).toBe("On pace to spend ₹62,000 this month — 520% above your 2-month average.");
+  });
+
+  it("skips the pace line when it is too early to project", () => {
+    const s: IAdvancedExpenseStats = {
+      ...empty(2026, 10),
+      summary: { ...empty(2026, 10).summary, totalDebits: 15000, totalCredits: 0 },
+      dailyBreakdown: [d("2026-10-01", 15000)],
+    };
+    const out = buildExpenseInsights(s, new Date(2026, 9, 3));
+    expect(out.find((i) => i.kind === "pace")).toBeUndefined();
+  });
+
+  it("projects a day-1 rent payment from the 3-month average", () => {
+    const s: IAdvancedExpenseStats = {
+      ...empty(2026, 10),
+      summary: { ...empty(2026, 10).summary, totalDebits: 15000, totalCredits: 0 },
+      dailyBreakdown: [d("2026-10-01", 15000)],
+      monthlyTrend: [t(2026, 7, 30000, 0), t(2026, 8, 30000, 0), t(2026, 9, 30000, 0)],
+    };
+    const pace = buildExpenseInsights(s, new Date(2026, 9, 1)).find((i) => i.kind === "pace");
+    expect(pace?.text).toBe("On pace to spend ₹44,032.26 this month — 47% above your 3-month average.");
+  });
+
+  it("does not count today as a no-spend day", () => {
+    const s: IAdvancedExpenseStats = {
+      ...empty(2026, 10),
+      summary: { ...empty(2026, 10).summary, totalDebits: 100, totalCredits: 0 },
+      // 10 Oct: spend on days 1 and 9; today (10th) has none yet
+      dailyBreakdown: [d("2026-10-01", 50), d("2026-10-09", 50)],
+    };
+    const ns = buildExpenseInsights(s, new Date(2026, 9, 10)).find((i) => i.kind === "noSpend");
+    expect(ns?.text).toBe("7 no-spend days, longest streak 7 days.");
+  });
+
+  it("compares the current month with the same point last month", () => {
+    const s: IAdvancedExpenseStats = {
+      ...empty(2026, 10),
+      summary: { ...empty(2026, 10).summary, totalDebits: 20000, totalCredits: 0 },
+      dailyBreakdown: [d("2026-10-02", 20000)],
+      // Sep 30000 pro-rated to the 10th = 10000 -> +100%
+      monthlyTrend: [t(2026, 9, 30000, 0), t(2026, 10, 20000, 0)],
+    };
+    const mom = buildExpenseInsights(s, new Date(2026, 9, 10)).find((i) => i.kind === "mom");
+    expect(mom?.text).toBe("Spending so far this month is 100% higher than at the same point last month.");
+    expect(mom?.tone).toBe("warning");
+  });
+
+  it("stays quiet on month-over-month when on track with last month's pace", () => {
+    const s: IAdvancedExpenseStats = {
+      ...empty(2026, 10),
+      summary: { ...empty(2026, 10).summary, totalDebits: 10000, totalCredits: 0 },
+      dailyBreakdown: [d("2026-10-02", 10000)],
+      monthlyTrend: [t(2026, 9, 30000, 0), t(2026, 10, 10000, 0)],
+    };
+    expect(buildExpenseInsights(s, new Date(2026, 9, 10)).find((i) => i.kind === "mom")).toBeUndefined();
+  });
+
   it("never returns more than 5 insights", () => {
     const s = past();
     s.dailyBreakdown = [d("2026-09-05", 3000), d("2026-09-06", 4000), d("2026-09-01", 700)];
@@ -427,11 +646,19 @@ describe("buildExpenseInsights", () => {
     expect(buildExpenseInsights(s, new Date(2026, 9, 17)).length).toBeLessThanOrEqual(5);
   });
 
+  it("names the months for a lower past month", () => {
+    const s = past();
+    s.monthlyTrend = [t(2026, 8, 10000, 10000), t(2026, 9, 7700, 10000)];
+    const mom = buildExpenseInsights(s, new Date(2026, 9, 17)).find((i) => i.kind === "mom");
+    expect(mom?.text).toBe("Spending in September was 23% lower than in August.");
+    expect(mom?.tone).toBe("positive");
+  });
+
   it("includes a month-over-month sentence on a big change", () => {
     const s = past();
     s.monthlyTrend = [t(2026, 8, 5000, 10000), t(2026, 9, 7700, 10000)];
     const mom = buildExpenseInsights(s, new Date(2026, 9, 17)).find((i) => i.kind === "mom");
-    expect(mom?.text).toBe("Spending is 54% higher than last month.");
+    expect(mom?.text).toBe("Spending in September was 54% higher than in August.");
     expect(mom?.tone).toBe("warning");
   });
 });
