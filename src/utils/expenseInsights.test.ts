@@ -204,11 +204,18 @@ describe("projectMonthEnd", () => {
     expect(r).toEqual({ projected: 15000, daysElapsed: 6, daysInMonth: 31, isCurrentMonth: true, tooEarly: true });
     expect(projectMonthEnd(15000, { year: 2026, month: 10 }, new Date(2026, 9, 6), null).tooEarly).toBe(true);
   });
-  it("from day 7 uses the higher of the 3-month rate and the recent rate", () => {
-    // day 7, slow month: recent 700/7 = 100/day < 31000/31 = 1000/day -> 700 + 1000*24
-    expect(projectMonthEnd(700, { year: 2026, month: 10 }, new Date(2026, 9, 7), 31000).projected).toBe(24700);
-    // day 10, fast month: recent 20000/10 = 2000/day > 1000/day -> 20000 + 2000*21
-    expect(projectMonthEnd(20000, { year: 2026, month: 10 }, new Date(2026, 9, 10), 31000).projected).toBe(62000);
+  it("from day 7 blends the recent rate with the 3-month rate by how much of the month has passed", () => {
+    // rate = w*recent + (1-w)*avgRate, w = daysElapsed/daysInMonth
+    // day 7, slow month: 700/31 + (24/31)*1000 = 796.77/day -> 700 + 796.77*24
+    expect(projectMonthEnd(700, { year: 2026, month: 10 }, new Date(2026, 9, 7), 31000).projected).toBe(19822.58);
+    // day 20, genuinely fast month: lands between the average pace (51k) and the raw pace (62k)
+    expect(projectMonthEnd(40000, { year: 2026, month: 10 }, new Date(2026, 9, 20), 31000).projected).toBe(58096.77);
+  });
+  it("a day-1 rent payment is still not extrapolated on day 7", () => {
+    // max(avg, recent) gave 15000 + (15000/7)*24 = 66428.57
+    const r = projectMonthEnd(15000, { year: 2026, month: 10 }, new Date(2026, 9, 7), 30000);
+    expect(r.projected).toBeLessThanOrEqual(45000);
+    expect(r.projected).toBe(44594.17);
   });
   it("ignores the average for past months", () => {
     const r = projectMonthEnd(5, { year: 2026, month: 9 }, new Date(2026, 9, 2), 30000);
@@ -544,7 +551,7 @@ describe("buildExpenseInsights", () => {
     // projection: 10000/10*31 = 31000; avg = 28125/3 = 9375 -> +230.67% -> "231%"
     const out = buildExpenseInsights(s, new Date(2026, 9, 10));
     const pace = out.find((i) => i.kind === "pace");
-    expect(pace?.text).toBe("On pace to spend ₹31,000 this month — 231% above your 3-month average.");
+    expect(pace?.text).toBe("On pace to spend about ₹21,076 this month — 125% above your 3-month average.");
     expect(pace?.tone).toBe("warning");
   });
 
@@ -557,7 +564,7 @@ describe("buildExpenseInsights", () => {
     };
     // day 10: recent 310/day < avg 1000/day -> 3100 + 1000*21 = 24100; vs 31000 -> 22.26% below
     const pace = buildExpenseInsights(s, new Date(2026, 9, 10)).find((i) => i.kind === "pace");
-    expect(pace?.text).toBe("On pace to spend ₹24,100 this month — 22% below your 3-month average.");
+    expect(pace?.text).toBe("On pace to spend about ₹19,426 this month — 37% below your 3-month average.");
     expect(pace?.tone).toBe("positive");
   });
 
@@ -568,7 +575,7 @@ describe("buildExpenseInsights", () => {
       dailyBreakdown: [d("2026-10-02", 10000)],
     };
     const pace = buildExpenseInsights(s, new Date(2026, 9, 10)).find((i) => i.kind === "pace");
-    expect(pace?.text).toBe("On pace to spend ₹31,000 this month.");
+    expect(pace?.text).toBe("On pace to spend about ₹31,000 this month.");
     expect(pace?.tone).toBe("neutral");
   });
 
@@ -581,7 +588,7 @@ describe("buildExpenseInsights", () => {
     };
     // day 10: avg 10000 over 2 months; recent 2000/day -> 20000 + 2000*21 = 62000 -> 520% above
     const pace = buildExpenseInsights(s, new Date(2026, 9, 10)).find((i) => i.kind === "pace");
-    expect(pace?.text).toBe("On pace to spend ₹62,000 this month — 520% above your 2-month average.");
+    expect(pace?.text).toBe("On pace to spend about ₹38,137 this month — 281% above your 2-month average.");
   });
 
   it("skips the pace line when it is too early to project", () => {
@@ -602,7 +609,7 @@ describe("buildExpenseInsights", () => {
       monthlyTrend: [t(2026, 7, 30000, 0), t(2026, 8, 30000, 0), t(2026, 9, 30000, 0)],
     };
     const pace = buildExpenseInsights(s, new Date(2026, 9, 1)).find((i) => i.kind === "pace");
-    expect(pace?.text).toBe("On pace to spend ₹44,032.26 this month — 47% above your 3-month average.");
+    expect(pace?.text).toBe("On pace to spend about ₹44,032 this month — 47% above your 3-month average.");
   });
 
   it("does not count today as a no-spend day", () => {

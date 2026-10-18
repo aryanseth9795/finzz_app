@@ -181,7 +181,12 @@ export const projectMonthEnd = (
     return { projected: round2(spend + avgRate * daysLeft), ...base };
   }
   const recentRate = spend / daysElapsed;
-  return { projected: round2(spend + Math.max(avgRate, recentRate) * daysLeft), ...base };
+  if (!hasAvg) return { projected: round2(spend + recentRate * daysLeft), ...base };
+  // Trust this month's pace in proportion to how much of it has passed, so an
+  // early lump sum (rent) doesn't dominate, but a genuinely fast month still shows.
+  const w = daysElapsed / daysInMonth;
+  const rate = w * recentRate + (1 - w) * avgRate;
+  return { projected: round2(spend + rate * daysLeft), ...base };
 };
 
 const dayLimit = (year: number, month: number, upToDay?: number): number => {
@@ -416,7 +421,7 @@ export const buildExpenseInsights = (stats: IAdvancedExpenseStats, today: Date):
   // 2. Pace (current month only; skipped when it is too early to project)
   if (proj.isCurrentMonth && !proj.tooEarly && spend > 0) {
     const diff = avg !== null ? pctChange(proj.projected, avg) : null;
-    const base = `On pace to spend ${formatCurrency(proj.projected)} this month`;
+    const base = `On pace to spend about ${formatCurrency(Math.round(proj.projected))} this month`;
     const avgName = `your ${avgMonths}-month average`;
     if (diff === null) {
       out.push({ kind: "pace", text: `${base}.`, tone: "neutral" });
