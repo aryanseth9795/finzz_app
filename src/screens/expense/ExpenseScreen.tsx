@@ -39,6 +39,10 @@ import { describeError } from "../../api/axios";
 import { CACHE_DURATION } from "../../constants/api";
 import { logger } from "../../utils/logger";
 import { pickInitialLedger, readCachedPage } from "../../utils/expenseLedger";
+import { formatDate } from "../../utils/dates";
+
+// Text/icons on coloured fills stay white; the theme has no on-primary token.
+const ON_ACCENT = "#FFFFFF";
 
 const ExpenseScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
@@ -391,7 +395,7 @@ const ExpenseScreen = ({ navigation }: any) => {
           onRequestClose={() => setShowLedgerPicker(false)}
         >
           <Pressable
-            style={styles.modalOverlay}
+            style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}
             onPress={() => setShowLedgerPicker(false)}
           >
             <Pressable
@@ -526,7 +530,7 @@ const ExpenseScreen = ({ navigation }: any) => {
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
               Total Debited
             </Text>
-            <Text style={[styles.statValue, { color: colors.danger }]}>
+            <Text style={[styles.statValue, { color: colors.debit }]}>
               ₹{totalDebited.toFixed(2)}
             </Text>
           </View>
@@ -539,7 +543,7 @@ const ExpenseScreen = ({ navigation }: any) => {
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
               Total Credited
             </Text>
-            <Text style={[styles.statValue, { color: "#22C55E" }]}>
+            <Text style={[styles.statValue, { color: colors.credit }]}>
               ₹{totalCredited.toFixed(2)}
             </Text>
           </View>
@@ -547,13 +551,20 @@ const ExpenseScreen = ({ navigation }: any) => {
         <Text
           style={{
             textAlign: "center",
-            fontSize: 12,
-            color: isSurplus ? "#22C55E" : colors.danger,
-            opacity: 0.7,
+            fontSize: 13,
+            color: colors.textSecondary,
             marginTop: 6,
           }}
         >
-          Net: {isSurplus ? "+" : ""}₹{Math.abs(net).toFixed(2)}{" "}
+          Net:{" "}
+          <Text
+            style={{
+              color: isSurplus ? colors.credit : colors.debit,
+              fontWeight: "600",
+            }}
+          >
+            {isSurplus ? "+" : ""}₹{Math.abs(net).toFixed(2)}
+          </Text>{" "}
           {isSurplus ? "(Surplus)" : "(Deficit)"}
         </Text>
       </View>
@@ -602,7 +613,7 @@ const ExpenseScreen = ({ navigation }: any) => {
       {/* First Line: Date, Amount, Actions */}
       <View style={styles.rowTop}>
         <Text style={[styles.cell, styles.dateCell, { color: colors.text }]}>
-          {new Date(expense.date).toLocaleDateString()}
+          {formatDate(expense.date, "DD MMM")}
         </Text>
         <Text
           style={[
@@ -611,8 +622,8 @@ const ExpenseScreen = ({ navigation }: any) => {
             {
               color:
                 (expense.type || "debit") === "credit"
-                  ? "#22C55E"
-                  : colors.danger,
+                  ? colors.credit
+                  : colors.debit,
             },
           ]}
         >
@@ -705,16 +716,16 @@ const ExpenseScreen = ({ navigation }: any) => {
           <TouchableOpacity
             style={[
               styles.closeLedgerButton,
-              { backgroundColor: colors.warningLight },
+              { backgroundColor: colors.primarySurface },
             ]}
             onPress={handleCloseLedger}
           >
             <Ionicons
               name="lock-closed-outline"
               size={16}
-              color={colors.warning}
+              color={colors.primary}
             />
-            <Text style={[styles.closeLedgerText, { color: colors.warning }]}>
+            <Text style={[styles.closeLedgerText, { color: colors.primary }]}>
               Close Ledger
             </Text>
           </TouchableOpacity>
@@ -744,7 +755,7 @@ const ExpenseScreen = ({ navigation }: any) => {
                 <Ionicons
                   name="wallet-outline"
                   size={64}
-                  color={colors.textTertiary}
+                  color={colors.textSecondary}
                 />
                 <Text
                   style={[styles.emptyText, { color: colors.textSecondary }]}
@@ -752,7 +763,7 @@ const ExpenseScreen = ({ navigation }: any) => {
                   No expenses yet
                 </Text>
                 <Text
-                  style={[styles.emptySubtext, { color: colors.textTertiary }]}
+                  style={[styles.emptySubtext, { color: colors.textSecondary }]}
                 >
                   Tap the + button to add your first expense
                 </Text>
@@ -774,14 +785,17 @@ const ExpenseScreen = ({ navigation }: any) => {
         {(!activeLedger ||
           (isCurrentMonth() && activeLedger?.status === "open")) && (
           <TouchableOpacity
-            style={[styles.fab, { backgroundColor: colors.primary }]}
+            style={[
+              styles.fab,
+              { backgroundColor: colors.primary, shadowColor: colors.shadow },
+            ]}
             onPress={() =>
               navigation.navigate("AddEditExpense", {
                 ledgerId: activeLedger?._id,
               })
             }
           >
-            <Ionicons name="add" size={28} color="#FFFFFF" />
+            <Ionicons name="add" size={28} color={ON_ACCENT} />
           </TouchableOpacity>
         )}
       </View>
@@ -900,7 +914,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     elevation: 4,
-    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
@@ -908,7 +921,6 @@ const styles = StyleSheet.create({
   // Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
   modalContent: {
