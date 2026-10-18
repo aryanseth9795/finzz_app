@@ -41,3 +41,17 @@ export function withAlpha(hex: string, alpha: number): string {
   const h = (v: number) => v.toString(16).padStart(2, "0").toUpperCase();
   return `#${h(r)}${h(g)}${h(b)}${h(a)}`;
 }
+
+/** The candidate colour with the highest contrast against `bg` (first wins ties). */
+export const readableOn = (bg: string, candidates: string[]): string => {
+  let best = candidates[0];
+  let bestRatio = -1;
+  for (const c of candidates) {
+    const r = contrastRatio(c, bg);
+    if (r > bestRatio) {
+      best = c;
+      bestRatio = r;
+    }
+  }
+  return best;
+};

@@ -145,7 +145,11 @@ export const lightColors = {
     track: "#EEF2FF",
     positive: "#059669",
     negative: "#E11D48",
-    heat: ["#EEF2FF", "#C7D2FE", "#A5B4FC", "#6366F1", "#4338CA"],
+    // Steps 3-4 are dark enough for white day labels (>= 4.5:1).
+    heat: ["#EEF2FF", "#C7D2FE", "#A5B4FC", "#4F46E5", "#3730A3"],
+    // Selected type-toggle fills; >= 4.5:1 with white text.
+    accentDebit: "#BE123C", // Rose-700
+    accentCredit: "#047857", // Emerald-700
   },
 };
 
@@ -178,7 +182,7 @@ export const darkColors = {
   // Text
   text: "#FAFAFA", // Zinc-50
   textSecondary: "#A1A1AA", // Zinc-400
-  textTertiary: "#52525B", // Zinc-600
+  textTertiary: "#8B8B94", // >= 4.5:1 on surface #18181B
   textInverse: "#09090B", // Zinc-950
   textLink: "#818CF8", // Indigo-400
 
@@ -252,7 +256,11 @@ export const darkColors = {
     track: "#27272A",
     positive: "#34D399",
     negative: "#FB7185",
-    heat: ["#27272A", "#312E81", "#4338CA", "#6366F1", "#A5B4FC"],
+    // Every step keeps light day labels at >= 4.5:1.
+    heat: ["#27272A", "#312E81", "#3730A3", "#4338CA", "#5850EC"],
+    // Selected type-toggle fills; >= 4.5:1 with white text.
+    accentDebit: "#BE123C", // Rose-700
+    accentCredit: "#047857", // Emerald-700
   },
 };
 

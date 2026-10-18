@@ -3,6 +3,7 @@ import { darkColors, lightColors } from "../constants/theme";
 import {
   contrastRatio,
   hexToRgb,
+  readableOn,
   relativeLuminance,
   withAlpha,
 } from "./chartPalette";
@@ -89,4 +90,40 @@ describe.each(themes)("chart tokens (%s)", (_name, colors) => {
   it("axis has >= 4.5 contrast against surface", () => {
     expect(contrastRatio(c.axis, surface)).toBeGreaterThanOrEqual(4.5);
   });
+
+  it.each([0, 1, 2, 3, 4])(
+    "heat[%i] reaches >= 4.5 with its readableOn label",
+    (i) => {
+      const label = readableOn(c.heat[i], [colors.text, "#FFFFFF"]);
+      expect(contrastRatio(label, c.heat[i])).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+
+  it("heat ramp moves monotonically away from the surface", () => {
+    const d = c.heat.map((h) => contrastRatio(h, surface));
+    for (let i = 1; i < d.length; i++) {
+      expect(d[i]).toBeGreaterThan(d[i - 1]);
+    }
+  });
+
+  it.each(["accentDebit", "accentCredit"] as const)(
+    "%s has >= 4.5 contrast with white text",
+    (key) => {
+      expect(c[key]).toMatch(HEX);
+      expect(contrastRatio("#FFFFFF", c[key])).toBeGreaterThanOrEqual(4.5);
+    },
+  );
+});
+
+describe("readableOn", () => {
+  it("picks the candidate with the highest contrast", () => {
+    expect(readableOn("#000000", ["#FFFFFF", "#333333"])).toBe("#FFFFFF");
+    expect(readableOn("#FFFFFF", ["#FFFFFF", "#333333"])).toBe("#333333");
+  });
+});
+
+it("dark textTertiary has >= 4.5 contrast on the dark surface", () => {
+  expect(
+    contrastRatio(darkColors.textTertiary, darkColors.surface),
+  ).toBeGreaterThanOrEqual(4.5);
 });

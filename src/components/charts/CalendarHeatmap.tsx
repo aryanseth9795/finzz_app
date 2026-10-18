@@ -13,6 +13,7 @@ import {
   compactNumber,
   WEEKDAY_SHORT_MON_FIRST,
 } from "./calendar";
+import { readableOn } from "../../utils/chartPalette";
 
 export interface CalendarHeatmapProps {
   year: number;
@@ -153,7 +154,10 @@ const CalendarHeatmap: React.FC<CalendarHeatmapProps> = ({
                     <Text
                       style={{
                         fontSize: fs.xs,
-                        color: level >= 3 ? "#FFFFFF" : colors.textSecondary,
+                        color: readableOn(chart.heat[level], [
+                          colors.text,
+                          "#FFFFFF",
+                        ]),
                         fontWeight: isToday || isSelected ? "700" : "500",
                       }}
                     >

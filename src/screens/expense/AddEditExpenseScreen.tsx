@@ -242,7 +242,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               style={[
                 styles.typeButton,
                 txnType === "debit" && {
-                  backgroundColor: colors.debit,
+                  backgroundColor: colors.chart.accentDebit,
                 },
               ]}
               onPress={() => setTxnType("debit")}
@@ -269,7 +269,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               style={[
                 styles.typeButton,
                 txnType === "credit" && {
-                  backgroundColor: colors.credit,
+                  backgroundColor: colors.chart.accentCredit,
                 },
               ]}
               onPress={() => setTxnType("credit")}
