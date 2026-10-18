@@ -57,6 +57,8 @@ export interface ITx {
   rejectedBy?: string | { _id: string; name: string };
   rejectedAt?: string;
   rejectionRemark?: string;
+  editedAt?: string;
+  editCount?: number;
   createdAt: string;
   updatedAt: string;
 }

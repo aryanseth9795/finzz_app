@@ -19,7 +19,7 @@ import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
-import { getTxnsApi, verifyTxApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
+import { getTxnsApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
 import { getChatStatsApi, getChatMonthsApi } from "../../api/statsApi";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
@@ -46,6 +46,14 @@ import {
   withCurrentMonth,
   type YearMonth,
 } from "../../utils/months";
+import TxDetailsSheet from "../../components/chat/TxDetailsSheet";
+import {
+  CARRY_FORWARD_ID,
+  isTxConflict,
+  latestTxFromError,
+  personName,
+  txStatusOf,
+} from "../../utils/transactions";
 
 const ChatScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
@@ -79,6 +87,10 @@ const ChatScreen = ({ route, navigation }: any) => {
   const [rejectTxnId, setRejectTxnId] = useState<string | null>(null);
   const [rejectRemark, setRejectRemark] = useState("");
   const [rejecting, setRejecting] = useState(false);
+  const [rejectExpectedAt, setRejectExpectedAt] = useState<string | undefined>();
+
+  // Transaction details sheet (null = closed)
+  const [selectedTx, setSelectedTx] = useState<ITx | null>(null);
 
   // Get friend info
   const friend: IUser =
@@ -240,19 +252,51 @@ const ChatScreen = ({ route, navigation }: any) => {
     await cacheManager.remove(CACHE_KEYS.CHATS);
   };
 
-  const handleVerify = async (txnId: string) => {
-    try {
-      const response = await reviewTxApi(txnId, "verify");
-      dispatch(updateTx(response.data.txn));
-      await invalidateChatCache();
-    } catch (error: any) {
-      Alert.alert("Error", error?.response?.data?.message || "Failed to verify");
+  /**
+   * A failed verify/reject/delete may carry the server's latest copy of the
+   * transaction (400 already reviewed, 403, 409 changed). Refresh the row from
+   * it and explain what happened instead of leaving a stale card behind.
+   */
+  const handleTxError = async (error: any, fallback: string) => {
+    const latest = latestTxFromError(error);
+    if (latest) dispatch(updateTx(latest));
+    if (isTxConflict(error)) {
+      Alert.alert(
+        "Transaction changed",
+        error?.response?.data?.message ||
+          "The amount or details changed after you opened it. Please check it again.",
+      );
+    } else if (latest && error?.response?.status === 400) {
+      Alert.alert(
+        "Already reviewed",
+        "Already reviewed — this transaction was updated.",
+      );
+    } else {
+      Alert.alert("Error", error?.response?.data?.message || fallback);
+    }
+    if (latest) {
+      try {
+        await invalidateChatCache();
+      } catch {
+        // Cache invalidation is best-effort here.
+      }
     }
   };
 
-  const handleReject = async (txnId: string) => {
+  const handleVerify = async (tx: ITx) => {
+    try {
+      const response = await reviewTxApi(tx._id, "verify", undefined, tx.updatedAt);
+      dispatch(updateTx(response.data.txn));
+      await invalidateChatCache();
+    } catch (error: any) {
+      await handleTxError(error, "Failed to verify");
+    }
+  };
+
+  const handleReject = (tx: ITx) => {
     // Open the rejection modal instead of rejecting immediately
-    setRejectTxnId(txnId);
+    setRejectTxnId(tx._id);
+    setRejectExpectedAt(tx.updatedAt);
     setRejectRemark("");
     setRejectModalVisible(true);
   };
@@ -265,15 +309,17 @@ const ChatScreen = ({ route, navigation }: any) => {
         rejectTxnId,
         "reject",
         rejectRemark.trim() || undefined,
+        rejectExpectedAt,
       );
       dispatch(updateTx(response.data.txn));
       await invalidateChatCache();
     } catch (error: any) {
-      Alert.alert("Error", error?.response?.data?.message || "Failed to reject");
+      await handleTxError(error, "Failed to reject");
     } finally {
       setRejecting(false);
       setRejectModalVisible(false);
       setRejectTxnId(null);
+      setRejectExpectedAt(undefined);
       setRejectRemark("");
     }
   };
@@ -302,10 +348,7 @@ const ChatScreen = ({ route, navigation }: any) => {
               dispatch(removeTx(txnId));
               await invalidateChatCache();
             } catch (error: any) {
-              Alert.alert(
-                "Error",
-                error?.response?.data?.message || "Failed to delete",
-              );
+              await handleTxError(error, "Failed to delete");
             }
           },
         },
@@ -562,8 +605,8 @@ const ChatScreen = ({ route, navigation }: any) => {
       return u._id;
     };
 
-    const txStatus = tx.status || (tx.verified ? "verified" : "pending");
-    const isCarryForward = tx._id === "carry-forward";
+    const txStatus = txStatusOf(tx);
+    const isCarryForward = tx._id === CARRY_FORWARD_ID;
     const isCredit = getUserId(tx.to) === user?._id;
     const addedById = getUserId(tx.addedBy);
     const isMyTx = addedById === user?._id;
@@ -571,7 +614,10 @@ const ChatScreen = ({ route, navigation }: any) => {
     // Action rules based on status
     const isReceiverPending = !isMyTx && txStatus === "pending";
     const isCreatorRejected = isMyTx && txStatus === "rejected";
-    const addedByName = getUserName(tx.addedBy);
+    const addedByLabel = `Added by ${personName(tx.addedBy, {
+      meId: user?._id,
+      members: chat?.members,
+    })}`;
 
     const rowBg =
       txStatus === "rejected"
@@ -586,16 +632,9 @@ const ChatScreen = ({ route, navigation }: any) => {
         onLongPress={() =>
           isCreatorRejected ? handleDelete(tx._id) : null
         }
-        onPress={() =>
-          isCreatorRejected
-            ? navigation.navigate("AddEditTx", {
-                chatId,
-                tx,
-                friendName: friend?.name,
-                friend,
-              })
-            : null
-        }
+        onPress={() => {
+          if (!isCarryForward) setSelectedTx(tx);
+        }}
         style={[
           styles.tableRow,
           { borderBottomColor: colors.separatorLight },
@@ -633,13 +672,13 @@ const ChatScreen = ({ route, navigation }: any) => {
             ) : isReceiverPending ? (
               <View style={{ flexDirection: "row", gap: 6 }}>
                 <TouchableOpacity
-                  onPress={() => handleVerify(tx._id)}
+                  onPress={() => handleVerify(tx)}
                   style={[styles.verifyBtn, { backgroundColor: colors.successLight }]}
                 >
                   <Text style={[styles.verifyBtnText, { color: colors.verified }]}>✓</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => handleReject(tx._id)}
+                  onPress={() => handleReject(tx)}
                   style={[styles.verifyBtn, { backgroundColor: colors.danger + "20" }]}
                 >
                   <Text style={[styles.verifyBtnText, { color: colors.danger }]}>✗</Text>
@@ -660,7 +699,7 @@ const ChatScreen = ({ route, navigation }: any) => {
           </Text>
           {!isCarryForward && txStatus !== "rejected" && (
             <Text style={[styles.addedByText, { color: colors.textTertiary }]}>
-              By {addedByName}
+              {addedByLabel}
             </Text>
           )}
         </View>
@@ -846,6 +885,36 @@ const ChatScreen = ({ route, navigation }: any) => {
       >
         <Ionicons name="add" size={28} color="#FFFFFF" />
       </TouchableOpacity>
+
+      <TxDetailsSheet
+        tx={selectedTx}
+        meId={user?._id}
+        members={chat?.members}
+        friendName={friend?.name}
+        busy={rejecting}
+        onClose={() => setSelectedTx(null)}
+        onEdit={(tx) => {
+          setSelectedTx(null);
+          navigation.navigate("AddEditTx", {
+            chatId,
+            tx,
+            friendName: friend?.name,
+            friend,
+          });
+        }}
+        onDelete={(tx) => {
+          setSelectedTx(null);
+          handleDelete(tx._id);
+        }}
+        onVerify={(tx) => {
+          setSelectedTx(null);
+          handleVerify(tx);
+        }}
+        onReject={(tx) => {
+          setSelectedTx(null);
+          handleReject(tx);
+        }}
+      />
 
       {/* Rejection Remark Modal */}
       <Modal
