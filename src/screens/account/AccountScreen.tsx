@@ -23,7 +23,11 @@ import {
 } from "../../api/authApi";
 import { tokenManager } from "../../utils/tokenManager";
 import { cacheManager } from "../../utils/cacheManager";
-import { getCurrentPushToken } from "../../hooks/useNotifications";
+import {
+  clearPushRegistrationState,
+  getCurrentPushToken,
+  waitForPushRegistrationIdle,
+} from "../../hooks/useNotifications";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
   updateAvatar,
@@ -95,6 +99,10 @@ const AccountScreen = ({ navigation }: any) => {
            * user must still end up signed out on this device, and the server
            * grant expires on its own.
            */
+          // Let any in-flight push registration finish first, so a late upload
+          // cannot re-attach this token to the account being signed out.
+          await waitForPushRegistrationIdle();
+
           const [refreshToken, pushToken] = await Promise.all([
             tokenManager.getRefreshToken(),
             getCurrentPushToken(),
@@ -104,6 +112,14 @@ const AccountScreen = ({ navigation }: any) => {
             await logoutApi({ refreshToken, pushToken });
           } catch {
             // Best effort — proceed with the local sign-out either way.
+          }
+
+          // Forget the uploaded push token so the next sign-in re-uploads.
+          // Must never block sign-out.
+          try {
+            await clearPushRegistrationState();
+          } catch {
+            // Ignore — local sign-out proceeds regardless.
           }
 
           await tokenManager.clearAll();

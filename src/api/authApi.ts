@@ -49,6 +49,9 @@ export const updateProfileApi = (data: { name?: string }) =>
 export const updatePushTokenApi = (pushToken: string) =>
   api.post("/users/push-token", { pushToken });
 
+export const reportPushStatusApi = (outcome: string, detail?: string) =>
+  api.post("/users/push-status", { outcome, detail });
+
 export const uploadAvatarApi = (imageUri: string) => {
   const formData = new FormData();
   formData.append("avatar", {
@@ -69,14 +72,18 @@ export const sendOtpApi = (email: string) =>
 export const verifyOtpApi = (email: string, otp: string) =>
   api.post("/users/verify-otp", { email, otp });
 
-export const forgotPasswordApi = (email: string) =>
-  api.post("/users/forgot-password", { email });
+/** The OTP goes to the email registered on the account; the reply carries it masked. */
+export const forgotPasswordApi = (phone: string) =>
+  api.post<{ success: boolean; message: string; maskedEmail: string }>(
+    "/users/forgot-password",
+    { phone },
+  );
 
 export const resetPasswordApi = (
-  email: string,
+  phone: string,
   otp: string,
   newPassword: string,
-) => api.post("/users/reset-password", { email, otp, newPassword });
+) => api.post("/users/reset-password", { phone, otp, newPassword });
 
 export const changePasswordApi = (oldPassword: string, newPassword: string) =>
   api.post("/users/change-password", { oldPassword, newPassword });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
@@ -15,15 +15,12 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
 import { Ionicons } from "@expo/vector-icons";
 import dayjs from "dayjs";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
-import { getTxnsApi, verifyTxApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
-import { getChatStatsApi, getChatMonthsApi, getChatExportHtmlApi } from "../../api/statsApi";
-import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
+import { getTxnsApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
+import { getChatStatsApi, getChatMonthsApi } from "../../api/statsApi";
 import { useAppSelector, useAppDispatch } from "../../store";
 import {
   setTransactions,
@@ -32,12 +29,31 @@ import {
   setTxLoading,
   removeTx,
   updateTx,
+  resetChat,
 } from "../../store/slices/chatSlice";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { CACHE_DURATION } from "../../constants/api";
 import { ITx, IChatStats, IUser, IAvailableMonth } from "../../types";
 import { logger } from "../../utils/logger";
 import { describeError } from "../../api/axios";
+import MonthSelector from "../../components/chat/MonthSelector";
+import {
+  MONTH_SHORT,
+  currentYearMonth,
+  firstOfMonthApiDate,
+  isSameMonth,
+  isStatsForMonth,
+  withCurrentMonth,
+  type YearMonth,
+} from "../../utils/months";
+import TxDetailsSheet from "../../components/chat/TxDetailsSheet";
+import {
+  CARRY_FORWARD_ID,
+  isTxConflict,
+  latestTxFromError,
+  personName,
+  txStatusOf,
+} from "../../utils/transactions";
 
 const ChatScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
@@ -52,16 +68,29 @@ const ChatScreen = ({ route, navigation }: any) => {
   const [loadingMore, setLoadingMore] = useState(false);
 
   // Month picker state
-  const now = new Date();
+  const [now] = useState(() => new Date());
   const [selectedYear, setSelectedYear] = useState(now.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1);
   const [availableMonths, setAvailableMonths] = useState<IAvailableMonth[]>([]);
+  const selectorMonths = useMemo(
+    () => withCurrentMonth(availableMonths, now),
+    [availableMonths, now],
+  );
+  // Bumped on every month change; a response carrying an older id is dropped.
+  const requestIdRef = useRef(0);
+  // True when the totals request for the selected month failed.
+  const [statsError, setStatsError] = useState(false);
+  const hasFocusedRef = useRef(false);
 
   // Rejection modal state
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectTxnId, setRejectTxnId] = useState<string | null>(null);
   const [rejectRemark, setRejectRemark] = useState("");
   const [rejecting, setRejecting] = useState(false);
+  const [rejectExpectedAt, setRejectExpectedAt] = useState<string | undefined>();
+
+  // Transaction details sheet (null = closed)
+  const [selectedTx, setSelectedTx] = useState<ITx | null>(null);
 
   // Get friend info
   const friend: IUser =
@@ -70,11 +99,12 @@ const ChatScreen = ({ route, navigation }: any) => {
 
   const fetchTransactions = useCallback(
     async (isRefresh = false) => {
+      const requestId = requestIdRef.current;
+      const isStale = () => requestId !== requestIdRef.current;
       try {
-        if (!isRefresh) dispatch(setTxLoading(true));
-
         // Try cache first for initial load
         if (!isRefresh) {
+          dispatch(setTxLoading(true));
           const cached = await cacheManager.get<{
             txns: ITx[];
             nextCursor: string | null;
@@ -83,8 +113,15 @@ const ChatScreen = ({ route, navigation }: any) => {
             CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
             CACHE_DURATION.TRANSACTIONS,
           );
+          if (isStale()) return;
           if (cached) {
             dispatch(setTransactions(cached));
+          } else {
+            // Never show another month's rows under this month's label.
+            dispatch(
+              setTransactions({ txns: [], nextCursor: null, hasMore: true }),
+            );
+            dispatch(setTxLoading(true));
           }
         }
 
@@ -95,86 +132,96 @@ const ChatScreen = ({ route, navigation }: any) => {
           selectedMonth,
         );
         const data = response.data;
-        dispatch(
-          setTransactions({
-            txns: data.txns || data,
-            nextCursor: data.nextCursor || null,
-            hasMore: data.hasMore ?? false,
-          }),
-        );
+        const payload = {
+          txns: data.txns || data,
+          nextCursor: data.nextCursor || null,
+          hasMore: data.hasMore ?? false,
+        };
+        if (!isStale()) dispatch(setTransactions(payload));
         await cacheManager.set(
           CACHE_KEYS.TRANSACTIONS(chatId, selectedYear, selectedMonth),
-          {
-            txns: data.txns || data,
-            nextCursor: data.nextCursor || null,
-            hasMore: data.hasMore ?? false,
-          },
+          payload,
         );
       } catch (error) {
         logger.error("Failed to fetch transactions:", error);
       } finally {
-        dispatch(setTxLoading(false));
+        if (!isStale()) dispatch(setTxLoading(false));
       }
     },
     [chatId, dispatch, selectedYear, selectedMonth],
   );
 
   const fetchStats = useCallback(async () => {
+    const requestId = requestIdRef.current;
+    setStatsError(false);
     try {
       const response = await getChatStatsApi(
         chatId,
         selectedYear,
         selectedMonth,
       );
+      if (requestId !== requestIdRef.current) return;
       const backendStats = response.data.stats;
       dispatch(setStats(backendStats));
     } catch (error) {
       logger.error("Failed to fetch stats:", error);
+      if (requestId === requestIdRef.current) setStatsError(true);
     }
   }, [chatId, dispatch, selectedYear, selectedMonth]);
 
   const fetchAvailableMonths = useCallback(async () => {
     try {
       const response = await getChatMonthsApi(chatId);
-      const months: IAvailableMonth[] = response.data.months || [];
-      setAvailableMonths(months);
-      // Ensure current month is always in the list
-      const now = new Date();
-      const hasCurrentMonth = months.some(
-        (m) => m.year === now.getFullYear() && m.month === now.getMonth() + 1,
-      );
-      if (!hasCurrentMonth) {
-        setAvailableMonths([
-          { year: now.getFullYear(), month: now.getMonth() + 1, txCount: 0 },
-          ...months,
-        ]);
-      }
+      setAvailableMonths(response.data.months || []);
     } catch (error) {
       logger.error("Failed to fetch months:", error);
     }
   }, [chatId]);
 
+  // Single month-driven load path (runs on mount and on every month change).
+  // The transactions/stats slices are global, so clear whatever another chat
+  // left behind before this chat's first fetch (declared first = runs first).
   useEffect(() => {
+    dispatch(resetChat());
+  }, [dispatch]);
+
+  useEffect(() => {
+    requestIdRef.current += 1;
     fetchTransactions();
     fetchStats();
-    fetchAvailableMonths();
-  }, [fetchTransactions, fetchStats, fetchAvailableMonths]);
+    // Invalidate in-flight responses on month change and on unmount.
+    return () => {
+      requestIdRef.current += 1;
+    };
+  }, [fetchTransactions, fetchStats]);
 
-  // Re-fetch stats when month changes
-  useEffect(() => {
-    fetchStats();
-  }, [selectedYear, selectedMonth, fetchStats]);
+  // Always-current fetchers for the focus effect, so a month change does not
+  // re-run it (that would fetch the new month's stats a second time).
+  const latestFetchers = useRef({ fetchTransactions, fetchStats });
+  latestFetchers.current = { fetchTransactions, fetchStats };
 
-  // Refresh data when screen comes into focus (e.g., after adding a transaction)
+  // Refresh when the screen comes into focus (e.g. after adding a transaction).
+  // The first focus is covered by the effect above, so it only loads months.
   useFocusEffect(
     useCallback(() => {
-      fetchTransactions(true);
-      fetchStats();
-    }, [fetchTransactions, fetchStats]),
+      fetchAvailableMonths();
+      if (hasFocusedRef.current) {
+        latestFetchers.current.fetchTransactions(true);
+        latestFetchers.current.fetchStats();
+      }
+      hasFocusedRef.current = true;
+    }, [fetchAvailableMonths]),
   );
+
+  const handleMonthChange = (ym: YearMonth) => {
+    if (isSameMonth(ym, { year: selectedYear, month: selectedMonth })) return;
+    setSelectedYear(ym.year);
+    setSelectedMonth(ym.month);
+  };
 
   const handleLoadMore = async () => {
     if (!hasMore || loadingMore || !nextCursor) return;
+    const requestId = requestIdRef.current;
     setLoadingMore(true);
     try {
       const response = await getTxnsApi(
@@ -183,6 +230,7 @@ const ChatScreen = ({ route, navigation }: any) => {
         selectedYear,
         selectedMonth,
       );
+      if (requestId !== requestIdRef.current) return;
       const data = response.data;
       dispatch(
         appendTransactions({
@@ -204,19 +252,51 @@ const ChatScreen = ({ route, navigation }: any) => {
     await cacheManager.remove(CACHE_KEYS.CHATS);
   };
 
-  const handleVerify = async (txnId: string) => {
-    try {
-      const response = await reviewTxApi(txnId, "verify");
-      dispatch(updateTx(response.data.txn));
-      await invalidateChatCache();
-    } catch (error: any) {
-      Alert.alert("Error", error?.response?.data?.message || "Failed to verify");
+  /**
+   * A failed verify/reject/delete may carry the server's latest copy of the
+   * transaction (400 already reviewed, 403, 409 changed). Refresh the row from
+   * it and explain what happened instead of leaving a stale card behind.
+   */
+  const handleTxError = async (error: any, fallback: string) => {
+    const latest = latestTxFromError(error);
+    if (latest) dispatch(updateTx(latest));
+    if (isTxConflict(error)) {
+      Alert.alert(
+        "Transaction changed",
+        error?.response?.data?.message ||
+          "The amount or details changed after you opened it. Please check it again.",
+      );
+    } else if (latest && error?.response?.status === 400) {
+      Alert.alert(
+        "Already reviewed",
+        "Already reviewed — this transaction was updated.",
+      );
+    } else {
+      Alert.alert("Error", error?.response?.data?.message || fallback);
+    }
+    if (latest) {
+      try {
+        await invalidateChatCache();
+      } catch {
+        // Cache invalidation is best-effort here.
+      }
     }
   };
 
-  const handleReject = async (txnId: string) => {
+  const handleVerify = async (tx: ITx) => {
+    try {
+      const response = await reviewTxApi(tx._id, "verify", undefined, tx.updatedAt);
+      dispatch(updateTx(response.data.txn));
+      await invalidateChatCache();
+    } catch (error: any) {
+      await handleTxError(error, "Failed to verify");
+    }
+  };
+
+  const handleReject = (tx: ITx) => {
     // Open the rejection modal instead of rejecting immediately
-    setRejectTxnId(txnId);
+    setRejectTxnId(tx._id);
+    setRejectExpectedAt(tx.updatedAt);
     setRejectRemark("");
     setRejectModalVisible(true);
   };
@@ -229,34 +309,28 @@ const ChatScreen = ({ route, navigation }: any) => {
         rejectTxnId,
         "reject",
         rejectRemark.trim() || undefined,
+        rejectExpectedAt,
       );
       dispatch(updateTx(response.data.txn));
       await invalidateChatCache();
     } catch (error: any) {
-      Alert.alert("Error", error?.response?.data?.message || "Failed to reject");
+      await handleTxError(error, "Failed to reject");
     } finally {
       setRejecting(false);
       setRejectModalVisible(false);
       setRejectTxnId(null);
+      setRejectExpectedAt(undefined);
       setRejectRemark("");
     }
   };
 
-  const handleDownloadReport = async () => {
-    try {
-      const response = await getChatExportHtmlApi(chatId, selectedYear, selectedMonth);
-      const html = response.data?.html;
-      if (!html) throw new Error("No HTML returned from server");
-
-      const { uri } = await Print.printToFileAsync({ html });
-      await Sharing.shareAsync(uri, {
-        UTI: ".pdf",
-        mimeType: "application/pdf",
-      });
-    } catch (error) {
-      logger.error("PDF export failed", error);
-      Alert.alert("Could not create report", describeError(error));
-    }
+  const handleDownloadReport = () => {
+    navigation.navigate("ReportPreview", {
+      chatId,
+      year: selectedYear,
+      month: selectedMonth,
+      friendName: friend?.name,
+    });
   };
 
   const handleDelete = (txnId: string) => {
@@ -274,10 +348,7 @@ const ChatScreen = ({ route, navigation }: any) => {
               dispatch(removeTx(txnId));
               await invalidateChatCache();
             } catch (error: any) {
-              Alert.alert(
-                "Error",
-                error?.response?.data?.message || "Failed to delete",
-              );
+              await handleTxError(error, "Failed to delete");
             }
           },
         },
@@ -307,21 +378,6 @@ const ChatScreen = ({ route, navigation }: any) => {
     return "Unknown";
   };
 
-  const MONTH_NAMES = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-
   const handleRefresh = async () => {
     setRefreshing(true);
     await Promise.all([
@@ -332,67 +388,33 @@ const ChatScreen = ({ route, navigation }: any) => {
     setRefreshing(false);
   };
 
-  const renderMonthPicker = () => {
-    if (!availableMonths || availableMonths.length === 0) return null;
-
-    // Sort months: newest first
-    const sortedMonths = [...availableMonths].sort((a, b) => {
-      if (a.year !== b.year) return b.year - a.year;
-      return b.month - a.month;
-    });
-
-    return (
-      <View
-        style={[
-          styles.monthPickerContainer,
-          {
-            backgroundColor: colors.surfaceSecondary,
-            borderColor: colors.separator,
-          },
-        ]}
-      >
-        <Text
-          style={[
-            styles.monthPickerLabel,
-            { color: colors.textSecondary, fontSize: fs.xs },
-          ]}
-        >
-          Month:
-        </Text>
-        <Picker
-          selectedValue={`${selectedYear}-${selectedMonth}`}
-          onValueChange={(itemValue) => {
-            const [year, month] = itemValue.split("-");
-            setSelectedYear(parseInt(year));
-            setSelectedMonth(parseInt(month));
-          }}
-          style={[styles.picker, { color: colors.text }]}
-          dropdownIconColor={colors.text}
-        >
-          {sortedMonths.map((m) => (
-            <Picker.Item
-              key={`${m.year}-${m.month}`}
-              label={`${MONTH_NAMES[m.month - 1]} ${m.year}`}
-              value={`${m.year}-${m.month}`}
-            />
-          ))}
-        </Picker>
-      </View>
-    );
-  };
-
   const renderStatsBar = () => {
-    if (!stats?.members || !user?._id) return null;
+    if ((!stats && !statsError) || !user?._id) return null;
 
-    const myStats = stats.members[user._id];
-    if (!myStats) return null;
+    // Stats of a previously selected month stay in the store until the new
+    // response lands; never show them under the newly selected month.
+    const isFresh = !!stats && isStatsForMonth(stats, {
+      year: selectedYear,
+      month: selectedMonth,
+    });
+    const myStats = isFresh ? stats?.members?.[user._id] : undefined;
+    if (isFresh && !myStats) return null;
 
     // Backend carryForward = Received - Sent (Positive = You Owe)
     // We want Positive = You Receive (Sent - Received)
     // So we subtract the backend carryForward.
-    const carryForward = stats.carryForward?.[user._id] || 0;
-    const currentMonthNet = myStats.totalSent - myStats.totalReceived;
+    const carryForward = stats?.carryForward?.[user._id] || 0;
+    const totalSent = myStats?.totalSent ?? 0;
+    const totalReceived = myStats?.totalReceived ?? 0;
+    const currentMonthNet = totalSent - totalReceived;
     const totalNet = currentMonthNet - carryForward;
+    const isCurrentMonth = isSameMonth(
+      { year: selectedYear, month: selectedMonth },
+      currentYearMonth(now),
+    );
+    const monthTag = isCurrentMonth
+      ? "(This Month)"
+      : `in ${MONTH_SHORT[selectedMonth - 1]}`;
 
     return (
       <View style={styles.statsContainer}>
@@ -413,7 +435,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                   { color: colors.textSecondary, fontSize: 10 },
                 ]}
               >
-                Sent (This Month)
+                Sent {monthTag}
               </Text>
               <Text
                 style={[
@@ -421,7 +443,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                   { color: colors.debit, fontSize: fs.lg },
                 ]}
               >
-                ₹{myStats.totalSent.toLocaleString("en-IN")}
+                {isFresh ? `₹${totalSent.toLocaleString("en-IN")}` : "—"}
               </Text>
             </View>
             <View style={styles.statDivider} />
@@ -432,7 +454,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                   { color: colors.textSecondary, fontSize: 10 },
                 ]}
               >
-                Received (This Month)
+                Received {monthTag}
               </Text>
               <Text
                 style={[
@@ -440,7 +462,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                   { color: colors.credit, fontSize: fs.lg },
                 ]}
               >
-                ₹{myStats.totalReceived.toLocaleString("en-IN")}
+                {isFresh ? `₹${totalReceived.toLocaleString("en-IN")}` : "—"}
               </Text>
             </View>
             <View style={styles.statDivider} />
@@ -453,22 +475,33 @@ const ChatScreen = ({ route, navigation }: any) => {
               >
                 Total
               </Text>
-              <Text
-                style={[
-                  styles.statItemValue,
-                  {
-                    color:
-                      totalNet > 0
-                        ? colors.credit
-                        : totalNet < 0
-                          ? colors.debit
-                          : colors.text,
-                    fontSize: fs.lg,
-                  },
-                ]}
-              >
-                ₹{Math.abs(totalNet).toLocaleString("en-IN")}
-              </Text>
+              <View style={{ alignItems: "center", justifyContent: "center" }}>
+                <Text
+                  style={[
+                    styles.statItemValue,
+                    {
+                      color:
+                        totalNet > 0
+                          ? colors.credit
+                          : totalNet < 0
+                            ? colors.debit
+                            : colors.text,
+                      fontSize: fs.lg,
+                      // Keep the line height while loading so the card never jumps.
+                      opacity: isFresh ? 1 : 0,
+                    },
+                  ]}
+                >
+                  {isFresh ? `₹${Math.abs(totalNet).toLocaleString("en-IN")}` : "—"}
+                </Text>
+                {!isFresh && !statsError && (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.textSecondary}
+                    style={{ position: "absolute" }}
+                  />
+                )}
+              </View>
               <Text
                 style={[
                   styles.statItemSubtext,
@@ -483,11 +516,15 @@ const ChatScreen = ({ route, navigation }: any) => {
                   },
                 ]}
               >
-                {totalNet === 0
-                  ? "Settled"
-                  : totalNet > 0
-                    ? "To receive"
-                    : "To pay"}
+                {!isFresh
+                  ? statsError
+                    ? "Couldn't load totals · Pull to refresh"
+                    : " "
+                  : totalNet === 0
+                    ? "Settled"
+                    : totalNet > 0
+                      ? "To receive"
+                      : "To pay"}
               </Text>
             </View>
           </View>
@@ -501,10 +538,12 @@ const ChatScreen = ({ route, navigation }: any) => {
             { backgroundColor: colors.primary + "12", borderColor: colors.primary + "30" },
           ]}
           activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="View monthly report"
         >
-          <Ionicons name="download-outline" size={16} color={colors.primary} />
+          <Ionicons name="document-text-outline" size={16} color={colors.primary} />
           <Text style={[styles.downloadBtnText, { color: colors.primary }]}>
-            Download Report
+            View report
           </Text>
         </TouchableOpacity>
       </View>
@@ -566,8 +605,8 @@ const ChatScreen = ({ route, navigation }: any) => {
       return u._id;
     };
 
-    const txStatus = tx.status || (tx.verified ? "verified" : "pending");
-    const isCarryForward = tx._id === "carry-forward";
+    const txStatus = txStatusOf(tx);
+    const isCarryForward = tx._id === CARRY_FORWARD_ID;
     const isCredit = getUserId(tx.to) === user?._id;
     const addedById = getUserId(tx.addedBy);
     const isMyTx = addedById === user?._id;
@@ -575,7 +614,10 @@ const ChatScreen = ({ route, navigation }: any) => {
     // Action rules based on status
     const isReceiverPending = !isMyTx && txStatus === "pending";
     const isCreatorRejected = isMyTx && txStatus === "rejected";
-    const addedByName = getUserName(tx.addedBy);
+    const addedByLabel = `Added by ${personName(tx.addedBy, {
+      meId: user?._id,
+      members: chat?.members,
+    })}`;
 
     const rowBg =
       txStatus === "rejected"
@@ -590,16 +632,9 @@ const ChatScreen = ({ route, navigation }: any) => {
         onLongPress={() =>
           isCreatorRejected ? handleDelete(tx._id) : null
         }
-        onPress={() =>
-          isCreatorRejected
-            ? navigation.navigate("AddEditTx", {
-                chatId,
-                tx,
-                friendName: friend?.name,
-                friend,
-              })
-            : null
-        }
+        onPress={() => {
+          if (!isCarryForward) setSelectedTx(tx);
+        }}
         style={[
           styles.tableRow,
           { borderBottomColor: colors.separatorLight },
@@ -637,13 +672,13 @@ const ChatScreen = ({ route, navigation }: any) => {
             ) : isReceiverPending ? (
               <View style={{ flexDirection: "row", gap: 6 }}>
                 <TouchableOpacity
-                  onPress={() => handleVerify(tx._id)}
+                  onPress={() => handleVerify(tx)}
                   style={[styles.verifyBtn, { backgroundColor: colors.successLight }]}
                 >
                   <Text style={[styles.verifyBtnText, { color: colors.verified }]}>✓</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => handleReject(tx._id)}
+                  onPress={() => handleReject(tx)}
                   style={[styles.verifyBtn, { backgroundColor: colors.danger + "20" }]}
                 >
                   <Text style={[styles.verifyBtnText, { color: colors.danger }]}>✗</Text>
@@ -664,7 +699,7 @@ const ChatScreen = ({ route, navigation }: any) => {
           </Text>
           {!isCarryForward && txStatus !== "rejected" && (
             <Text style={[styles.addedByText, { color: colors.textTertiary }]}>
-              By {addedByName}
+              {addedByLabel}
             </Text>
           )}
         </View>
@@ -702,7 +737,15 @@ const ChatScreen = ({ route, navigation }: any) => {
   // Create a display list that includes the carry forward entry at the end if needed
   const displayTransactions = [...transactions];
 
-  if (!hasMore && !txLoading && stats?.carryForward && user?._id) {
+  // Only use carry-forward from stats of the selected month; stale stats from
+  // the previously selected month would show the wrong opening balance.
+  if (
+    !hasMore &&
+    !txLoading &&
+    stats?.carryForward &&
+    user?._id &&
+    isStatsForMonth(stats, { year: selectedYear, month: selectedMonth })
+  ) {
     const carryForward = stats.carryForward[user._id] || 0;
     if (carryForward !== 0) {
       // Create a mock transaction for the carry forward
@@ -710,7 +753,7 @@ const ChatScreen = ({ route, navigation }: any) => {
       const carryDate =
         transactions.length > 0
           ? transactions[transactions.length - 1].date
-          : new Date(selectedYear, selectedMonth - 1, 1).toISOString();
+          : firstOfMonthApiDate({ year: selectedYear, month: selectedMonth });
 
       const carryForwardTx: ITx = {
         _id: "carry-forward",
@@ -762,7 +805,12 @@ const ChatScreen = ({ route, navigation }: any) => {
       </View>
 
       {/* Month Picker */}
-      {renderMonthPicker()}
+      <MonthSelector
+        months={selectorMonths}
+        selected={{ year: selectedYear, month: selectedMonth }}
+        onChange={handleMonthChange}
+        loading={txLoading}
+      />
 
       {/* Stats Bar */}
       {renderStatsBar()}
@@ -837,6 +885,36 @@ const ChatScreen = ({ route, navigation }: any) => {
       >
         <Ionicons name="add" size={28} color="#FFFFFF" />
       </TouchableOpacity>
+
+      <TxDetailsSheet
+        tx={selectedTx}
+        meId={user?._id}
+        members={chat?.members}
+        friendName={friend?.name}
+        busy={rejecting}
+        onClose={() => setSelectedTx(null)}
+        onEdit={(tx) => {
+          setSelectedTx(null);
+          navigation.navigate("AddEditTx", {
+            chatId,
+            tx,
+            friendName: friend?.name,
+            friend,
+          });
+        }}
+        onDelete={(tx) => {
+          setSelectedTx(null);
+          handleDelete(tx._id);
+        }}
+        onVerify={(tx) => {
+          setSelectedTx(null);
+          handleVerify(tx);
+        }}
+        onReject={(tx) => {
+          setSelectedTx(null);
+          handleReject(tx);
+        }}
+      />
 
       {/* Rejection Remark Modal */}
       <Modal
@@ -951,26 +1029,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
-  },
-  // Month Picker
-  monthPickerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginBottom: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 4, // Reduced vertical padding since Picker has own height
-    borderRadius: 16,
-    borderWidth: 1,
-    minHeight: 52,
-  },
-  monthPickerLabel: {
-    fontWeight: "600",
-    marginRight: 8,
-  },
-  picker: {
-    flex: 1,
-    height: 50,
   },
   // Single stats card
   statsContainer: {

@@ -16,15 +16,20 @@ import { SafeAreaWrapper, Button } from "../../components/ui";
 import { forgotPasswordApi, resetPasswordApi } from "../../api/authApi";
 import { describeError } from "../../api/axios";
 import { useCooldown } from "../../hooks/useCooldown";
+import { validatePhone } from "../../utils/phone";
 
-type Step = "email" | "otp" | "password";
+type Step = "phone" | "otp" | "password";
 
 const ForgotPasswordScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
 
-  const [step, setStep] = useState<Step>("email");
-  const [email, setEmail] = useState("");
+  const [step, setStep] = useState<Step>("phone");
+  const [phone, setPhone] = useState("");
+  /** Normalised phone the OTP was requested for; reused by resend and reset. */
+  const [accountPhone, setAccountPhone] = useState("");
+  /** Where the OTP went, masked by the server (e.g. ar****51@gmail.com). */
+  const [maskedEmail, setMaskedEmail] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -41,21 +46,23 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
   } = useCooldown(60);
 
   // ── Step 1: Send OTP ────────────────────────────────────
+  // Only the login phone is asked for: the server finds the account's
+  // registered email and sends the OTP there.
   const handleSendOtp = async () => {
-    if (!email.trim() || !/\S+@\S+\.\S+/.test(email.trim())) {
-      Alert.alert("Invalid Email", "Please enter a valid email address");
+    const phoneCheck = validatePhone(phone);
+    if (!phoneCheck.ok) {
+      Alert.alert("Invalid phone number", phoneCheck.message);
       return;
     }
     setLoadingState(true);
     try {
-      await forgotPasswordApi(email.trim());
+      const res = await forgotPasswordApi(phoneCheck.value);
+      setAccountPhone(phoneCheck.value);
+      setMaskedEmail(res.data.maskedEmail);
       setStep("otp");
       startCooldown();
-    } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to send OTP",
-      );
+    } catch (error) {
+      Alert.alert("Can't reset password", describeError(error));
     } finally {
       setLoadingState(false);
     }
@@ -64,9 +71,9 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
   const handleResend = async () => {
     if (isCoolingDown) return;
     try {
-      await forgotPasswordApi(email.trim());
+      await forgotPasswordApi(accountPhone);
       startCooldown();
-      Alert.alert("OTP Sent", "A new OTP has been sent to your email.");
+      Alert.alert("OTP Sent", `A new OTP has been sent to ${maskedEmail}.`);
     } catch (error) {
       Alert.alert("Error", describeError(error));
     }
@@ -122,7 +129,7 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
     }
     setLoadingState(true);
     try {
-      await resetPasswordApi(email.trim(), otpValue, newPassword);
+      await resetPasswordApi(accountPhone, otpValue, newPassword);
       Alert.alert(
         "Password reset",
         "Your password has been changed. You have been signed out on all devices — please sign in again.",
@@ -157,9 +164,9 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
   ];
 
   // ─────────────────────────────────────────────────────────
-  // RENDER: Step 1 — Email
+  // RENDER: Step 1 — Phone
   // ─────────────────────────────────────────────────────────
-  if (step === "email") {
+  if (step === "phone") {
     return (
       <SafeAreaWrapper>
         <KeyboardAvoidingView
@@ -207,29 +214,30 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
                   { color: colors.textTertiary, fontSize: fs.md },
                 ]}
               >
-                Enter your registered email address and we'll send you an OTP to
-                reset your password.
+                Enter the phone number you log in with. We'll send an OTP to the
+                email linked to your account.
               </Text>
               <View style={styles.inputContainer}>
                 <Text
                   style={[styles.inputLabel, { color: colors.textSecondary }]}
                 >
-                  Email Address
+                  Phone Number
                 </Text>
                 <View style={inputWrapper()}>
                   <Ionicons
-                    name="mail-outline"
+                    name="call-outline"
                     size={20}
                     color={colors.textTertiary}
                     style={styles.inputIcon}
                   />
                   <TextInput
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="you@example.com"
+                    value={phone}
+                    onChangeText={setPhone}
+                    placeholder="98765 43210"
                     placeholderTextColor={colors.textTertiary}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
+                    keyboardType="phone-pad"
+                    autoComplete="tel"
+                    maxLength={16}
                     style={[styles.textInput, { color: colors.text }]}
                   />
                 </View>
@@ -268,7 +276,7 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
           >
             <View style={styles.header}>
               <TouchableOpacity
-                onPress={() => setStep("email")}
+                onPress={() => setStep("phone")}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
                 <Text style={[styles.backButton, { color: colors.primary }]}>
@@ -302,7 +310,7 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
               >
                 We sent a 6-digit OTP to{"\n"}
                 <Text style={{ color: colors.primary, fontWeight: "600" }}>
-                  {email}
+                  {maskedEmail}
                 </Text>
               </Text>
               <View style={styles.otpRow}>

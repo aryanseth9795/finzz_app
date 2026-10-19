@@ -7,6 +7,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import HomeScreen from "../screens/home/HomeScreen";
 import ChatScreen from "../screens/chat/ChatScreen";
 import AddEditTxScreen from "../screens/chat/AddEditTxScreen";
+import ReportPreviewScreen from "../screens/chat/ReportPreviewScreen";
 import FriendsScreen from "../screens/friends/FriendsScreen";
 import PoolScreen from "../screens/pool/PoolScreen";
 import CreatePoolScreen from "../screens/pool/CreatePoolScreen";
@@ -25,6 +26,8 @@ import ReportScreen from "../screens/reports/ReportScreen";
 import ExpenseScreen from "../screens/expense/ExpenseScreen";
 import AddEditExpenseScreen from "../screens/expense/AddEditExpenseScreen";
 import ExpenseStatsScreen from "../screens/expense/ExpenseStatsScreen";
+import VaultStackNavigator from "./VaultStack";
+import NotesStackNavigator from "./NotesStack";
 
 const ChatsStack = createNativeStackNavigator();
 
@@ -41,6 +44,7 @@ const ChatsStackNavigator = () => {
       <ChatsStack.Screen name="AddEditTx" component={AddEditTxScreen} />
       <ChatsStack.Screen name="AddFriend" component={FriendsScreen} />
       <ChatsStack.Screen name="Report" component={ReportScreen} />
+      <ChatsStack.Screen name="ReportPreview" component={ReportPreviewScreen} />
     </ChatsStack.Navigator>
   );
 };
@@ -143,6 +147,12 @@ const MainTabs = () => {
             case "Expenses":
               iconName = focused ? "wallet" : "wallet-outline";
               break;
+            case "Notes":
+              iconName = focused ? "document-text" : "document-text-outline";
+              break;
+            case "Vault":
+              iconName = focused ? "lock-closed" : "lock-closed-outline";
+              break;
           }
 
           return <Ionicons name={iconName} size={size} color={color} />;
@@ -169,6 +179,8 @@ const MainTabs = () => {
       <Tab.Screen name="Chats" component={ChatsStackNavigator} />
       <Tab.Screen name="Pool" component={PoolStackNavigator} />
       <Tab.Screen name="Expenses" component={ExpenseStackNavigator} />
+      <Tab.Screen name="Notes" component={NotesStackNavigator} />
+      <Tab.Screen name="Vault" component={VaultStackNavigator} />
     </Tab.Navigator>
   );
 };

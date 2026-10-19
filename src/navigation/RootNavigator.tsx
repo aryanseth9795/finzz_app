@@ -4,7 +4,14 @@ import {
   DefaultTheme,
   DarkTheme,
 } from "@react-navigation/native";
-import { ActivityIndicator, View, StyleSheet, Text } from "react-native";
+import {
+  ActivityIndicator,
+  View,
+  StyleSheet,
+  Text,
+  Alert,
+  Linking,
+} from "react-native";
 import { useTheme } from "../contexts/ThemeContext";
 import { useToast } from "../contexts/ToastContext";
 import { useAppSelector, useAppDispatch } from "../store";
@@ -19,6 +26,8 @@ import { tokenManager } from "../utils/tokenManager";
 import { cacheManager } from "../utils/cacheManager";
 import { useNotifications } from "../hooks/useNotifications";
 import { useAppUpdates } from "../hooks/useAppUpdates";
+import { useForceUpdate } from "../hooks/useForceUpdate";
+import ForceUpdateScreen from "../screens/update/ForceUpdateScreen";
 import { navigationRef } from "./navigationRef";
 import AuthStack from "./AuthStack";
 import MainTabs from "./MainTabs";
@@ -37,6 +46,29 @@ const RootNavigator = () => {
 
   useAppUpdates();
   useNotifications();
+  const gate = useForceUpdate();
+
+  // Optional (non-blocking) update: ask once per version. Keyed on the
+  // version string, so a refetched release object does not re-prompt.
+  useEffect(() => {
+    if (!gate.optionalVersion) return;
+    const apkUrl = gate.release?.apkUrl;
+    Alert.alert(
+      "Update available",
+      `Finzz v${gate.optionalVersion} is available.`,
+      [
+        { text: "Later", style: "cancel", onPress: gate.dismissOptional },
+        {
+          text: "Download",
+          onPress: () => {
+            gate.dismissOptional();
+            if (apkUrl) void Linking.openURL(apkUrl).catch(() => undefined);
+          },
+        },
+      ],
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gate.optionalVersion]);
 
   /**
    * Central sign-out.
@@ -166,7 +198,7 @@ const RootNavigator = () => {
     };
   }, [isDark, colors]);
 
-  if (initializing) {
+  if (initializing || gate.status === "checking") {
     return (
       <View style={[styles.splash, { backgroundColor: colors.background }]}>
         <ActivityIndicator
@@ -178,6 +210,15 @@ const RootNavigator = () => {
           Finzz
         </Text>
       </View>
+    );
+  }
+
+  if (gate.status === "blocked" && gate.release) {
+    return (
+      <ForceUpdateScreen
+        release={gate.release}
+        installedVersion={gate.installedVersion}
+      />
     );
   }
 

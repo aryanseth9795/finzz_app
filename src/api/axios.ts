@@ -1,5 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { BASE_URL, REQUEST_TIMEOUT_MS } from "../constants/api";
+import { shouldRefreshOn401 } from "./refreshPolicy";
 import { tokenManager } from "../utils/tokenManager";
 
 // Extend axios config to track retry
@@ -89,11 +90,16 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config as RetryConfig;
 
-    // Don't retry for refresh endpoint itself or if already retried
+    // Only a 401 on an authenticated, non-credential request means "access
+    // token expired". A wrong password at login is also a 401 and must not
+    // trigger refresh-then-sign-out.
     if (
       !originalRequest ||
       originalRequest._retry ||
-      originalRequest.url?.includes("/users/refresh")
+      !shouldRefreshOn401(
+        originalRequest.url,
+        !!originalRequest.headers?.Authorization,
+      )
     ) {
       return Promise.reject(error);
     }

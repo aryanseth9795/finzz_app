@@ -12,6 +12,7 @@ import {
   Pressable,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Avatar } from "../../components/ui";
 import { useTheme } from "../../contexts/ThemeContext";
@@ -37,6 +38,11 @@ import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { describeError } from "../../api/axios";
 import { CACHE_DURATION } from "../../constants/api";
 import { logger } from "../../utils/logger";
+import { pickInitialLedger, readCachedPage } from "../../utils/expenseLedger";
+import { formatDate } from "../../utils/dates";
+
+// Text/icons on coloured fills stay white; the theme has no on-primary token.
+const ON_ACCENT = "#FFFFFF";
 
 const ExpenseScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
@@ -62,16 +68,16 @@ const ExpenseScreen = ({ navigation }: any) => {
    * running `loadLedgers` and `loadExpenses` concurrently, producing a third
    * writer to the same slice.
    *
-   * A focus listener alone covers both cases: it fires on mount and on every
-   * subsequent focus.
+   * `useFocusEffect` covers both cases: it runs on the first focus and on
+   * every later one. A raw `focus` listener added in an effect is registered
+   * after the screen has already focused, so it can miss the initial load.
    */
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("focus", () => {
+  useFocusEffect(
+    useCallback(() => {
       void loadLedgers();
-    });
-    return unsubscribe;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [navigation]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []),
+  );
 
   const loadLedgers = async (isManualRefresh = false) => {
     try {
@@ -79,7 +85,16 @@ const ExpenseScreen = ({ navigation }: any) => {
         CACHE_KEYS.EXPENSE_LEDGERS,
         CACHE_DURATION.EXPENSES,
       );
-      if (cached) dispatch(setLedgers(cached));
+      if (cached) {
+        dispatch(setLedgers(cached));
+        // Open the cached ledger immediately so its expenses load in parallel
+        // with the ledger request below, instead of waiting for it. The
+        // network result keeps the same ledger ID, so it does not refetch.
+        if (!store.getState().expense.activeLedger) {
+          const initial = pickInitialLedger(cached);
+          if (initial) dispatch(setActiveLedger(initial));
+        }
+      }
 
       const now = new Date();
       const currentYear = now.getFullYear();
@@ -116,7 +131,7 @@ const ExpenseScreen = ({ navigation }: any) => {
         }
       } else if (!currentActiveLedger && ledgerList.length > 0) {
         // First load: default to current month
-        dispatch(setActiveLedger(currentRealWorldLedger || ledgerList[0]));
+        dispatch(setActiveLedger(pickInitialLedger(ledgerList, now)));
       }
     } catch (error) {
       logger.error("Failed to load ledgers:", error);
@@ -144,16 +159,15 @@ const ExpenseScreen = ({ navigation }: any) => {
       if (fresh) {
         dispatch(setTxLoading(true));
 
-        // Load from cache first
-        const cached = await cacheManager.get<IExpense[]>(
-          CACHE_KEYS.EXPENSES(activeLedger._id),
-          CACHE_DURATION.EXPENSES,
+        // Load from cache first. The page is stored with its cursor; a page
+        // without one never claims more, so scrolling cannot refetch page 1.
+        const cached = readCachedPage(
+          await cacheManager.get<unknown>(
+            CACHE_KEYS.EXPENSES(activeLedger._id),
+            CACHE_DURATION.EXPENSES,
+          ),
         );
-        if (cached) {
-          dispatch(
-            setExpenses({ expenses: cached, nextCursor: null, hasMore: true }),
-          );
-        }
+        if (cached) dispatch(setExpenses(cached));
       }
 
       const response = await getExpensesApi(
@@ -176,10 +190,11 @@ const ExpenseScreen = ({ navigation }: any) => {
             hasMore: more,
           }),
         );
-        await cacheManager.set(
-          CACHE_KEYS.EXPENSES(activeLedger._id),
-          newExpenses,
-        );
+        await cacheManager.set(CACHE_KEYS.EXPENSES(activeLedger._id), {
+          expenses: newExpenses,
+          nextCursor: newCursor,
+          hasMore: more,
+        });
       } else {
         dispatch(
           appendExpenses({
@@ -380,7 +395,7 @@ const ExpenseScreen = ({ navigation }: any) => {
           onRequestClose={() => setShowLedgerPicker(false)}
         >
           <Pressable
-            style={styles.modalOverlay}
+            style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}
             onPress={() => setShowLedgerPicker(false)}
           >
             <Pressable
@@ -515,7 +530,7 @@ const ExpenseScreen = ({ navigation }: any) => {
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
               Total Debited
             </Text>
-            <Text style={[styles.statValue, { color: colors.danger }]}>
+            <Text style={[styles.statValue, { color: colors.debit }]}>
               ₹{totalDebited.toFixed(2)}
             </Text>
           </View>
@@ -528,7 +543,7 @@ const ExpenseScreen = ({ navigation }: any) => {
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
               Total Credited
             </Text>
-            <Text style={[styles.statValue, { color: "#22C55E" }]}>
+            <Text style={[styles.statValue, { color: colors.credit }]}>
               ₹{totalCredited.toFixed(2)}
             </Text>
           </View>
@@ -536,13 +551,20 @@ const ExpenseScreen = ({ navigation }: any) => {
         <Text
           style={{
             textAlign: "center",
-            fontSize: 12,
-            color: isSurplus ? "#22C55E" : colors.danger,
-            opacity: 0.7,
+            fontSize: 13,
+            color: colors.textSecondary,
             marginTop: 6,
           }}
         >
-          Net: {isSurplus ? "+" : ""}₹{Math.abs(net).toFixed(2)}{" "}
+          Net:{" "}
+          <Text
+            style={{
+              color: isSurplus ? colors.credit : colors.debit,
+              fontWeight: "600",
+            }}
+          >
+            {isSurplus ? "+" : ""}₹{Math.abs(net).toFixed(2)}
+          </Text>{" "}
           {isSurplus ? "(Surplus)" : "(Deficit)"}
         </Text>
       </View>
@@ -591,7 +613,7 @@ const ExpenseScreen = ({ navigation }: any) => {
       {/* First Line: Date, Amount, Actions */}
       <View style={styles.rowTop}>
         <Text style={[styles.cell, styles.dateCell, { color: colors.text }]}>
-          {new Date(expense.date).toLocaleDateString()}
+          {formatDate(expense.date, "DD MMM")}
         </Text>
         <Text
           style={[
@@ -600,8 +622,8 @@ const ExpenseScreen = ({ navigation }: any) => {
             {
               color:
                 (expense.type || "debit") === "credit"
-                  ? "#22C55E"
-                  : colors.danger,
+                  ? colors.credit
+                  : colors.debit,
             },
           ]}
         >
@@ -694,16 +716,16 @@ const ExpenseScreen = ({ navigation }: any) => {
           <TouchableOpacity
             style={[
               styles.closeLedgerButton,
-              { backgroundColor: colors.warningLight },
+              { backgroundColor: colors.primarySurface },
             ]}
             onPress={handleCloseLedger}
           >
             <Ionicons
               name="lock-closed-outline"
               size={16}
-              color={colors.warning}
+              color={colors.primary}
             />
-            <Text style={[styles.closeLedgerText, { color: colors.warning }]}>
+            <Text style={[styles.closeLedgerText, { color: colors.primary }]}>
               Close Ledger
             </Text>
           </TouchableOpacity>
@@ -733,7 +755,7 @@ const ExpenseScreen = ({ navigation }: any) => {
                 <Ionicons
                   name="wallet-outline"
                   size={64}
-                  color={colors.textTertiary}
+                  color={colors.textSecondary}
                 />
                 <Text
                   style={[styles.emptyText, { color: colors.textSecondary }]}
@@ -741,7 +763,7 @@ const ExpenseScreen = ({ navigation }: any) => {
                   No expenses yet
                 </Text>
                 <Text
-                  style={[styles.emptySubtext, { color: colors.textTertiary }]}
+                  style={[styles.emptySubtext, { color: colors.textSecondary }]}
                 >
                   Tap the + button to add your first expense
                 </Text>
@@ -763,14 +785,17 @@ const ExpenseScreen = ({ navigation }: any) => {
         {(!activeLedger ||
           (isCurrentMonth() && activeLedger?.status === "open")) && (
           <TouchableOpacity
-            style={[styles.fab, { backgroundColor: colors.primary }]}
+            style={[
+              styles.fab,
+              { backgroundColor: colors.primary, shadowColor: colors.shadow },
+            ]}
             onPress={() =>
               navigation.navigate("AddEditExpense", {
                 ledgerId: activeLedger?._id,
               })
             }
           >
-            <Ionicons name="add" size={28} color="#FFFFFF" />
+            <Ionicons name="add" size={28} color={ON_ACCENT} />
           </TouchableOpacity>
         )}
       </View>
@@ -889,7 +914,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     elevation: 4,
-    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
@@ -897,7 +921,6 @@ const styles = StyleSheet.create({
   // Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
   modalContent: {
