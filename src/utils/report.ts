@@ -89,3 +89,20 @@ export const parseExportResponse = (
 
   return { html, fileName, periodLabel };
 };
+
+/**
+ * Fixed props for the report preview WebView: no JS, no popups, no link
+ * previews, only the inline HTML may load.
+ *
+ * `dataDetectorTypes` must be an array. The prop is iOS-only, but Android
+ * still receives it, and its generated view-manager delegate hard-casts it to
+ * ReadableArray, so a bare string ("none") throws a native ClassCastException
+ * and crashes the app as soon as the WebView mounts.
+ */
+export const REPORT_WEBVIEW_PROPS = {
+  originWhitelist: ["about:blank"],
+  javaScriptEnabled: false,
+  dataDetectorTypes: ["none"],
+  allowsLinkPreview: false,
+  setSupportMultipleWindows: false,
+} as const;

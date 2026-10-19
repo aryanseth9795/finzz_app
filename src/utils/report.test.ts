@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   MONTH_SHORT_EN,
+  REPORT_WEBVIEW_PROPS,
   PDF_SHARE_OPTIONS,
   isStaleReportFile,
   parseExportResponse,
@@ -131,5 +132,21 @@ describe("parseExportResponse", () => {
     expect(r.periodLabel).toBe("October 2026");
     const r2 = parseExportResponse({ html: "<p/>", fileName: 7, period: "x" }, fallback);
     expect(r2.fileName).toBe("Finzz-Summer-Oct-2026.pdf");
+  });
+});
+
+describe("REPORT_WEBVIEW_PROPS", () => {
+  // Android's generated view-manager delegate hard-casts array props
+  // ((ReadableArray) value), so a string here is a native ClassCastException
+  // that kills the app the moment the preview WebView mounts.
+  it("passes dataDetectorTypes as an array, never a bare string", () => {
+    expect(Array.isArray(REPORT_WEBVIEW_PROPS.dataDetectorTypes)).toBe(true);
+    expect(REPORT_WEBVIEW_PROPS.dataDetectorTypes).toEqual(["none"]);
+  });
+  it("keeps the preview locked down", () => {
+    expect(REPORT_WEBVIEW_PROPS.javaScriptEnabled).toBe(false);
+    expect(REPORT_WEBVIEW_PROPS.setSupportMultipleWindows).toBe(false);
+    expect(REPORT_WEBVIEW_PROPS.allowsLinkPreview).toBe(false);
+    expect(REPORT_WEBVIEW_PROPS.originWhitelist).toEqual(["about:blank"]);
   });
 });
