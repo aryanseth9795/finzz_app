@@ -26,6 +26,7 @@ import {
   parseExportResponse,
   PDF_SHARE_OPTIONS,
   ParsedExport,
+  REPORT_WEBVIEW_PROPS,
 } from "../../utils/report";
 
 // iOS ignores the @page margins in the report CSS, so give printToFileAsync
@@ -257,11 +258,9 @@ const ReportPreviewScreen = ({ route, navigation }: any) => {
         {report && (
           <WebView
             source={{ html: report.html }}
-            originWhitelist={["about:blank"]}
-            javaScriptEnabled={false}
-            dataDetectorTypes="none"
-            allowsLinkPreview={false}
-            setSupportMultipleWindows={false}
+            {...REPORT_WEBVIEW_PROPS}
+            originWhitelist={[...REPORT_WEBVIEW_PROPS.originWhitelist]}
+            dataDetectorTypes={[...REPORT_WEBVIEW_PROPS.dataDetectorTypes]}
             onShouldStartLoadWithRequest={allowRequest}
             scalesPageToFit={Platform.OS === "android"}
             style={styles.webview}
