@@ -26,10 +26,12 @@ import {
   getAdvancedStatsApi,
   getExpenseExportHtmlApi,
 } from "../../api/expenseApi";
-import { IAdvancedExpenseStats } from "../../types";
+import { IAdvancedExpenseStats, IAvailableMonth } from "../../types";
 import { logger } from "../../utils/logger";
 import { describeError } from "../../api/axios";
 import { buildExpenseInsights } from "../../utils/expenseInsights";
+import { YearMonth, isSameMonth, monthKey } from "../../utils/months";
+import MonthSelector from "../../components/chat/MonthSelector";
 import {
   BigTicketsSection,
   CategoriesSection,
@@ -38,7 +40,6 @@ import {
   ErrorState,
   HeroSection,
   InsightsSection,
-  ON_ACCENT,
   PaceSection,
   StatsSkeleton,
   TrendSection,
@@ -48,9 +49,23 @@ import {
 
 const MONTHS_BACK = 18;
 
+/** monthKey -> debitCount + creditCount, from a report's monthlyTrend. */
+const trendTxCounts = (
+  trend: IAdvancedExpenseStats["monthlyTrend"] | undefined,
+): Record<string, number> => {
+  const out: Record<string, number> = {};
+  for (const t of trend ?? []) {
+    if (!Number.isFinite(t?.year) || !Number.isFinite(t?.monthNum)) continue;
+    const count = (t.debitCount ?? 0) + (t.creditCount ?? 0);
+    out[monthKey({ year: t.year, month: t.monthNum })] =
+      Number.isFinite(count) ? count : 0;
+  }
+  return out;
+};
+
 const ExpenseStatsScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
-  const { colors, spacing, fontSize, fontWeight, borderRadius } = theme;
+  const { colors, spacing, fontSize, fontWeight } = theme;
   const { width: windowWidth } = useWindowDimensions();
 
   const [loading, setLoading] = useState(true);
@@ -68,21 +83,27 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
     month: now.getMonth() + 1,
   });
 
-  const availableMonths = useMemo(() => {
-    const months = [];
+  // Transaction counts per month seen in any loaded report's monthlyTrend, kept
+  // across month changes so the selector's year grid stays usable while the
+  // next month loads. No extra requests.
+  const [trendCounts, setTrendCounts] = useState<Record<string, number>>({});
+
+  // The last MONTHS_BACK months up to (and including) the current one.
+  const selectorMonths = useMemo<IAvailableMonth[]>(() => {
+    const months: IAvailableMonth[] = [];
     const current = new Date();
     for (let i = 0; i < MONTHS_BACK; i++) {
       const d = new Date(current.getFullYear(), current.getMonth() - i, 1);
-      months.push({
-        year: d.getFullYear(),
-        month: d.getMonth() + 1,
-        label: d.toLocaleDateString("en-US", {
-          month: "short",
-          year: "2-digit",
-        }),
-      });
+      const ym = { year: d.getFullYear(), month: d.getMonth() + 1 };
+      months.push({ ...ym, txCount: trendCounts[monthKey(ym)] ?? 0 });
     }
     return months;
+  }, [trendCounts]);
+
+  const handleMonthChange = useCallback((ym: YearMonth) => {
+    setSelectedDate((prev) =>
+      isSameMonth(prev, ym) ? prev : { year: ym.year, month: ym.month },
+    );
   }, []);
 
   const loadStats = useCallback(
@@ -102,7 +123,12 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
         );
         if (id !== requestId.current) return; // a newer month was picked
         if (response.data.success) {
-          setStats(response.data.data);
+          const data = response.data.data;
+          setStats(data);
+          setTrendCounts((prev) => ({
+            ...prev,
+            ...trendTxCounts(data?.monthlyTrend),
+          }));
         } else {
           setError("Could not load analytics for this month.");
         }
@@ -169,51 +195,6 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
   const isEmpty =
     !!stats &&
     (stats.summary?.debitCount ?? 0) + (stats.summary?.creditCount ?? 0) === 0;
-
-  const renderMonthSelector = () => (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.monthSelector}
-      contentContainerStyle={{
-        paddingHorizontal: spacing.lg,
-        gap: spacing.sm,
-      }}
-    >
-      {availableMonths.map((m) => {
-        const isSelected =
-          m.year === selectedDate.year && m.month === selectedDate.month;
-        return (
-          <TouchableOpacity
-            key={`${m.year}-${m.month}`}
-            accessibilityRole="button"
-            accessibilityState={{ selected: isSelected }}
-            accessibilityLabel={`${m.label}${isSelected ? ", selected" : ""}`}
-            style={[
-              styles.monthPill,
-              {
-                borderRadius: borderRadius.xl,
-                paddingHorizontal: spacing.lg,
-                backgroundColor: isSelected ? colors.primary : colors.surface,
-                borderColor: isSelected ? colors.primary : colors.border,
-              },
-            ]}
-            onPress={() => setSelectedDate({ year: m.year, month: m.month })}
-          >
-            <Text
-              style={{
-                fontSize: fontSize.sm,
-                fontWeight: fontWeight.semibold,
-                color: isSelected ? ON_ACCENT : colors.textSecondary,
-              }}
-            >
-              {m.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
-  );
 
   const renderBody = () => {
     if (loading) return <StatsSkeleton />;
@@ -323,7 +304,15 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
         </TouchableOpacity>
       </View>
 
-      {renderMonthSelector()}
+      {/* A plain View (flexShrink 0) so the report below can't squeeze it. */}
+      <View style={styles.monthSelector}>
+        <MonthSelector
+          months={selectorMonths}
+          selected={selectedDate}
+          onChange={handleMonthChange}
+          loading={loading}
+        />
+      </View>
 
       <ScrollView
         contentContainerStyle={{
@@ -361,16 +350,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  monthSelector: {
-    flexGrow: 0,
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  monthPill: {
-    height: 36,
-    borderWidth: 1,
-    justifyContent: "center",
-  },
+  monthSelector: { flexShrink: 0 },
 });
 
 export default ExpenseStatsScreen;
