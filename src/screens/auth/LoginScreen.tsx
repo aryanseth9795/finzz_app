@@ -17,6 +17,7 @@ import { loginApi } from "../../api/authApi";
 import { describeError } from "../../api/axios";
 import { validatePhone } from "../../utils/phone";
 import { tokenManager } from "../../utils/tokenManager";
+import { syncCategoriesOnLaunch } from "../../utils/expenseCategorySync";
 import { useAppDispatch } from "../../store";
 import { setCredentials, setLoading } from "../../store/slices/authSlice";
 
@@ -63,6 +64,9 @@ const LoginScreen = ({ navigation }: any) => {
 
       await tokenManager.saveAuthData(access_token, refresh_token, user);
       dispatch(setCredentials(user));
+      // Login doesn't go through the launch Profile call, so sync the saved
+      // category list from this reply. Background only, never throws.
+      void syncCategoriesOnLaunch(user.expenseCategoriesVersion);
     } catch (error) {
       Alert.alert("Login Failed", describeError(error));
     } finally {

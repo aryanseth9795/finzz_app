@@ -18,6 +18,7 @@ import { describeError } from "../../api/axios";
 import { validatePhone } from "../../utils/phone";
 import { useCooldown } from "../../hooks/useCooldown";
 import { tokenManager } from "../../utils/tokenManager";
+import { syncCategoriesOnLaunch } from "../../utils/expenseCategorySync";
 import { useAppDispatch } from "../../store";
 import { setCredentials, setLoading } from "../../store/slices/authSlice";
 
@@ -185,6 +186,9 @@ const RegisterScreen = ({ navigation }: any) => {
       const { access_token, refresh_token, user } = response.data;
       await tokenManager.saveAuthData(access_token, refresh_token, user);
       dispatch(setCredentials(user));
+      // Registration doesn't go through the launch Profile call, so sync the
+      // saved category list from this reply (a new account is at 0: no request).
+      void syncCategoriesOnLaunch(user.expenseCategoriesVersion);
     } catch (error) {
       Alert.alert("Registration Failed", describeError(error));
     } finally {
