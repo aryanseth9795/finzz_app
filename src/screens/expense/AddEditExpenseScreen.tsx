@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   Platform,
+  Keyboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -57,6 +58,8 @@ import CategoryChips from "./CategoryChips";
 
 // Text/icons on coloured fills stay white; the theme has no on-primary token.
 const ON_ACCENT = "#FFFFFF";
+// Room under Save so it scrolls fully clear of the tab bar.
+const FORM_BOTTOM_SPACE = 32;
 
 const AddEditExpenseScreen = ({ route, navigation }: any) => {
   const { expense, ledgerId } = route.params || {};
@@ -109,6 +112,73 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
     [list, txnType, category],
   );
   const selectedId = findCategory(list, txnType, category)?._id ?? null;
+
+  /**
+   * Keep the focused field above the keyboard.
+   *
+   * The app draws edge to edge, so on Android the window no longer shrinks
+   * when the keyboard opens and the ScrollView keeps its full height: the
+   * keyboard simply covers Remarks, Category and its chips. The form instead
+   * gets the keyboard's height as extra bottom space, so it can scroll that
+   * far, and the focused field is scrolled to the top of what stays visible.
+   */
+  const scrollRef = useRef<ScrollView>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const keyboardOpen = useRef(false);
+  // Field offsets inside the form, from onLayout; the focused one's key.
+  const fieldY = useRef<Record<string, number>>({});
+  const focusedField = useRef<string | null>(null);
+
+  const scrollToFocused = () => {
+    const y =
+      focusedField.current !== null
+        ? fieldY.current[focusedField.current]
+        : undefined;
+    if (y === undefined) return;
+    // After the extra bottom space has rendered, or the scroll is clamped.
+    requestAnimationFrame(() =>
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true }),
+    );
+  };
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const onShow = Keyboard.addListener(showEvent, (e) => {
+      keyboardOpen.current = true;
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener(hideEvent, () => {
+      keyboardOpen.current = false;
+      focusedField.current = null;
+      setKeyboardHeight(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
+
+  // Scroll once the extra bottom space is committed, so the scroll isn't
+  // clamped to the shorter content. Height goes back to 0 on hide, so every
+  // opening of the keyboard runs this again.
+  useEffect(() => {
+    if (keyboardHeight > 0) scrollToFocused();
+  }, [keyboardHeight]);
+
+  const trackField = (key: string) => ({
+    onLayout: (e: { nativeEvent: { layout: { y: number } } }) => {
+      fieldY.current[key] = e.nativeEvent.layout.y;
+    },
+  });
+
+  // Moving focus while the keyboard is already open fires no show event.
+  const focusField = (key: string) => {
+    focusedField.current = key;
+    if (keyboardOpen.current) scrollToFocused();
+  };
 
   // Never rejects: CategoryChips doesn't await it. On failure the chip stays.
   const handleRemoveCategory = async (c: IExpenseCategory) => {
@@ -304,7 +374,18 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
 
       {/* "handled": with the keyboard up, a tap on a category chip must pick
           it, not just close the keyboard. */}
-      <ScrollView style={styles.form} keyboardShouldPersistTaps="handled">
+      {/* Padding lives on the content, not the ScrollView: on the ScrollView
+          itself the bottom padding was not scrollable, so Save ended up half
+          hidden behind the tab bar. */}
+      <ScrollView
+        ref={scrollRef}
+        style={styles.form}
+        contentContainerStyle={[
+          styles.formContent,
+          { paddingBottom: FORM_BOTTOM_SPACE + keyboardHeight },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Amount */}
         <View style={styles.field}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>
@@ -435,7 +516,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         </View>
 
         {/* Remarks */}
-        <View style={styles.field}>
+        <View style={styles.field} {...trackField("remarks")}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>
             Remarks
           </Text>
@@ -450,6 +531,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
             ]}
             value={remarks}
             onChangeText={setRemarks}
+            onFocus={() => focusField("remarks")}
             placeholder="Optional description"
             placeholderTextColor={colors.inputPlaceholder}
             multiline
@@ -458,7 +540,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         </View>
 
         {/* Category */}
-        <View style={styles.field}>
+        <View style={styles.field} {...trackField("category")}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>
             Category
           </Text>
@@ -473,6 +555,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
             ]}
             value={category}
             onChangeText={setCategory}
+            onFocus={() => focusField("category")}
             placeholder="e.g., Food, Transport, Shopping"
             placeholderTextColor={colors.inputPlaceholder}
           />
@@ -511,7 +594,8 @@ const styles = StyleSheet.create({
   },
   backButton: { padding: 4 },
   title: { fontSize: 18, fontWeight: "700" },
-  form: { padding: 16 },
+  form: { flex: 1 },
+  formContent: { padding: 16 },
   field: { marginBottom: 20 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
   input: {
