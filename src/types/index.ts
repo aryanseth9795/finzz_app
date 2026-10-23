@@ -401,3 +401,51 @@ export interface ExpenseCategoryReply {
   category?: IExpenseCategory;
   categoriesVersion?: number;
 }
+
+// ========================
+// Expense Search Types
+// ========================
+
+/**
+ * Search and filter state of the Expenses list. Amounts stay as the typed
+ * text so the inputs keep exactly what the user entered; they are parsed
+ * when the query is built.
+ */
+export interface ExpenseFilters {
+  q: string;
+  type: "all" | "debit" | "credit";
+  /** Category names, matched case- and space-insensitively on the server. */
+  categories: string[];
+  /** Expenses with no category (the report's "Other"). */
+  uncategorized: boolean;
+  minAmount: string;
+  maxAmount: string;
+  /** "month": the selected ledger month; "all": every month. */
+  scope: "month" | "all";
+}
+
+/** Count and totals of everything a search matches, not just the loaded page. */
+export interface ExpenseSearchSummary {
+  count: number;
+  debitTotal: number;
+  creditTotal: number;
+}
+
+/** One removable chip in the active-filter row. */
+export interface ExpenseFilterChip {
+  key: string;
+  label: string;
+}
+
+/**
+ * Route params of ExpenseHome. The report's "Where it went" opens the list
+ * filtered to one category of one month.
+ */
+export interface ExpenseHomeParams {
+  filter?: {
+    year: number;
+    month: number;
+    category?: string;
+    uncategorized?: boolean;
+  };
+}
