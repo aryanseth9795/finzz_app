@@ -1,4 +1,5 @@
 import { StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -123,9 +124,20 @@ const ExpenseStackNavigator = () => {
 // ========================
 const Tab = createBottomTabNavigator();
 
+// Room for a 24px icon above an 11px label, plus the space between them.
+const TAB_BAR_CONTENT_HEIGHT = 50;
+const TAB_BAR_PADDING_TOP = 8;
+// Space under the labels on devices with no bottom inset (no gesture bar).
+const TAB_BAR_MIN_PADDING_BOTTOM = 8;
+
 const MainTabs = () => {
   const { theme } = useTheme();
   const { colors } = theme;
+  const insets = useSafeAreaInsets();
+  const tabBarPaddingBottom = Math.max(
+    insets.bottom,
+    TAB_BAR_MIN_PADDING_BOTTOM,
+  );
 
   return (
     <Tab.Navigator
@@ -159,15 +171,20 @@ const MainTabs = () => {
         },
         tabBarActiveTintColor: colors.tabActive,
         tabBarInactiveTintColor: colors.tabInactive,
-        // Height was hardcoded to 95, ignoring the safe-area inset — oversized
-        // on devices with no bottom inset and misaligned on Android gesture
-        // navigation. Letting the navigator apply the inset itself keeps the
-        // bar correct on every device.
+        // Height was once hardcoded to 95, ignoring the safe-area inset. Then
+        // it was left to the navigator's default (49 + inset), but the top
+        // padding came out of those 49 and squeezed the icons and labels until
+        // they were cut off. The height is now the content plus both paddings,
+        // where the bottom padding is the device inset (gesture bar or nav
+        // buttons), so the bar fits on every device.
         tabBarStyle: {
           backgroundColor: colors.tabBar,
           borderTopColor: colors.tabBarBorder,
           borderTopWidth: StyleSheet.hairlineWidth,
-          paddingTop: 6,
+          height:
+            TAB_BAR_CONTENT_HEIGHT + TAB_BAR_PADDING_TOP + tabBarPaddingBottom,
+          paddingTop: TAB_BAR_PADDING_TOP,
+          paddingBottom: tabBarPaddingBottom,
         },
         tabBarLabelStyle: {
           fontSize: 11,
