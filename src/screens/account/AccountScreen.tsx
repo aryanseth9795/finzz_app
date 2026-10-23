@@ -23,6 +23,7 @@ import {
 } from "../../api/authApi";
 import { tokenManager } from "../../utils/tokenManager";
 import { cacheManager } from "../../utils/cacheManager";
+import { resetCategorySync } from "../../utils/expenseCategorySync";
 import {
   clearPushRegistrationState,
   getCurrentPushToken,
@@ -99,6 +100,9 @@ const AccountScreen = ({ navigation }: any) => {
            * user must still end up signed out on this device, and the server
            * grant expires on its own.
            */
+          // First, so a category fetch still in flight cannot write after the wipe.
+          resetCategorySync();
+
           // Let any in-flight push registration finish first, so a late upload
           // cannot re-attach this token to the account being signed out.
           await waitForPushRegistrationIdle();
@@ -122,6 +126,8 @@ const AccountScreen = ({ navigation }: any) => {
             // Ignore — local sign-out proceeds regardless.
           }
 
+          // Again, for any category fetch started during the logout call above.
+          resetCategorySync();
           await tokenManager.clearAll();
           await cacheManager.clearAll();
           // The root reducer resets every slice on this action, so the next

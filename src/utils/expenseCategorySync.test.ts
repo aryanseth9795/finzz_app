@@ -76,16 +76,25 @@ const httpError = (status: number) =>
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((r) => {
-    resolve = r;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 };
+
+/** Lets every pending promise callback run. */
+const settle = () => new Promise((r) => setTimeout(r, 0));
 
 beforeEach(() => {
   resetCategorySync();
   mocks.store.clear();
   vi.clearAllMocks();
+  // clearAllMocks keeps queued *Once values; a test that stops early must not
+  // hand its leftovers to the next one.
+  mocks.getExpenseCategoriesApi.mockReset();
+  mocks.deleteExpenseCategoryApi.mockReset();
 });
 
 describe("launchSyncAction (table 6.1)", () => {
@@ -354,6 +363,72 @@ describe("applyCategoryReply", () => {
     mocks.getExpenseCategoriesApi.mockRejectedValue(new Error("offline"));
     await expect(applyCategoryReply({ categoriesVersion: 9 })).resolves.toBeUndefined();
   });
+
+  it("fetch: adds the category now with the version unchanged, and keeps it if the refetch fails", async () => {
+    mocks.store.set(KEY, cache(3, [FOOD]));
+    const pending = deferred<ReturnType<typeof getReply>>();
+    mocks.getExpenseCategoriesApi.mockReturnValue(pending.promise);
+
+    const run = applyCategoryReply({ category: FUEL, categoriesVersion: 5 });
+    await vi.waitFor(() => expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(1));
+    expect(mocks.store.get(KEY)).toEqual(cache(3, [FOOD, FUEL]));
+
+    pending.reject(new Error("offline"));
+    await expect(run).resolves.toBeUndefined();
+    expect(mocks.store.get(KEY)).toEqual(cache(3, [FOOD, FUEL]));
+  });
+
+  it("fetch: a reply older than the saved copy adds nothing locally", async () => {
+    mocks.store.set(KEY, cache(5, [FOOD]));
+    mocks.getExpenseCategoriesApi.mockRejectedValue(new Error("offline"));
+    await applyCategoryReply({ category: FUEL, categoriesVersion: 4 });
+    expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(1);
+    expect(mocks.store.get(KEY)).toEqual(cache(5, [FOOD]));
+  });
+
+  it("fetch: does not join a request that started before the reply", async () => {
+    const first = deferred<ReturnType<typeof getReply>>();
+    const second = deferred<ReturnType<typeof getReply>>();
+    mocks.getExpenseCategoriesApi
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise);
+    const ensure = ensureCategories();
+    await vi.waitFor(() => expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(1));
+
+    const run = applyCategoryReply({ category: FUEL, categoriesVersion: 5 });
+    await settle();
+    // The second request waits for the first to settle.
+    expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(1);
+
+    first.resolve(getReply(4, [FOOD, RENT]));
+    await ensure;
+    await vi.waitFor(() => expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(2));
+
+    second.resolve(getReply(5, [FOOD, FUEL, RENT]));
+    await run;
+    expect(mocks.store.get(KEY)).toEqual(cache(5, [FOOD, FUEL, RENT]));
+  });
+
+  it("fetch: replies that arrive while a refetch waits share it", async () => {
+    mocks.store.set(KEY, cache(3, [FOOD]));
+    const first = deferred<ReturnType<typeof getReply>>();
+    mocks.getExpenseCategoriesApi
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(getReply(6, [FOOD, FUEL, RENT]));
+    const launch = syncCategoriesOnLaunch(4);
+    await vi.waitFor(() => expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(1));
+
+    const both = Promise.all([
+      applyCategoryReply({ category: FUEL, categoriesVersion: 5 }),
+      applyCategoryReply({ category: RENT, categoriesVersion: 6 }),
+    ]);
+    await settle();
+    first.resolve(getReply(4, [FOOD]));
+    await Promise.all([launch, both]);
+
+    expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(2);
+    expect(mocks.store.get(KEY)).toEqual(cache(6, [FOOD, FUEL, RENT]));
+  });
 });
 
 describe("removeExpenseCategory", () => {
@@ -371,6 +446,40 @@ describe("removeExpenseCategory", () => {
     mocks.deleteExpenseCategoryApi.mockResolvedValue({ data: { success: true, categoriesVersion: 6 } });
     mocks.getExpenseCategoriesApi.mockResolvedValue(getReply(6, [FUEL, RENT]));
     await removeExpenseCategory(FOOD);
+    expect(mocks.store.get(KEY)).toEqual(cache(6, [FUEL, RENT]));
+  });
+
+  it("fetch: drops the chip now with the version unchanged, even if the refetch fails", async () => {
+    mocks.store.set(KEY, cache(3, [FOOD, RENT]));
+    mocks.deleteExpenseCategoryApi.mockResolvedValue({ data: { success: true, categoriesVersion: 5 } });
+    const pending = deferred<ReturnType<typeof getReply>>();
+    mocks.getExpenseCategoriesApi.mockReturnValue(pending.promise);
+
+    const run = removeExpenseCategory(FOOD);
+    await vi.waitFor(() => expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(1));
+    expect(mocks.store.get(KEY)).toEqual(cache(3, [RENT]));
+
+    pending.reject(new Error("offline"));
+    await expect(run).resolves.toBeUndefined();
+    expect(mocks.store.get(KEY)).toEqual(cache(3, [RENT]));
+  });
+
+  it("fetch: does not join a request that started before the delete", async () => {
+    mocks.store.set(KEY, cache(3, [FOOD, RENT]));
+    const first = deferred<ReturnType<typeof getReply>>();
+    mocks.getExpenseCategoriesApi
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValueOnce(getReply(6, [FUEL, RENT]));
+    const launch = syncCategoriesOnLaunch(4);
+    await vi.waitFor(() => expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(1));
+
+    mocks.deleteExpenseCategoryApi.mockResolvedValue({ data: { success: true, categoriesVersion: 6 } });
+    const run = removeExpenseCategory(FOOD);
+    await settle();
+    first.resolve(getReply(4, [FOOD, FUEL, RENT]));
+    await Promise.all([launch, run]);
+
+    expect(mocks.getExpenseCategoriesApi).toHaveBeenCalledTimes(2);
     expect(mocks.store.get(KEY)).toEqual(cache(6, [FUEL, RENT]));
   });
 

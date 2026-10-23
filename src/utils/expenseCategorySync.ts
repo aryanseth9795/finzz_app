@@ -119,8 +119,15 @@ const listeners = new Set<Listener>();
  */
 let generation = 0;
 
-/** The one list request in flight, shared by every caller (launch, screen, replies). */
+/** The one list request in flight, shared by launch and the screen. */
 let inFlight: Promise<void> | null = null;
+
+/**
+ * A request waiting for `inFlight` to settle before it starts. Replies and
+ * removes use it: the request in flight may have been answered before their
+ * change reached the server, so they must not join it.
+ */
+let queued: Promise<void> | null = null;
 
 const notify = (cache: ExpenseCategoriesCache | null) => {
   listeners.forEach((listener) => {
@@ -143,10 +150,7 @@ const save = async (cache: ExpenseCategoriesCache, gen: number) => {
   notify(cache);
 };
 
-const fetchAndSave = (gen: number): Promise<void> => {
-  if (gen !== generation) return Promise.resolve();
-  if (inFlight) return inFlight;
-
+const startFetch = (gen: number): Promise<void> => {
   const run = (async () => {
     try {
       const response = await getExpenseCategoriesApi();
@@ -162,6 +166,30 @@ const fetchAndSave = (gen: number): Promise<void> => {
 
   inFlight = run;
   return run;
+};
+
+/**
+ * Gets the list and saves it. Joins the request in flight, unless `fresh`:
+ * then it waits for that one and starts a new one, which fresh callers that
+ * arrive before it starts share.
+ */
+const fetchAndSave = (
+  gen: number,
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<void> => {
+  if (gen !== generation) return Promise.resolve();
+  if (!inFlight) return startFetch(gen);
+  if (!fresh) return inFlight;
+  if (!queued) {
+    const next: Promise<void> = inFlight.then(() => {
+      if (queued === next) queued = null;
+      // Anything in flight now started after the fresh callers arrived, so
+      // joining it is fine.
+      return fetchAndSave(gen);
+    });
+    queued = next;
+  }
+  return queued;
 };
 
 /** The saved copy, read with no age limit: the version decides freshness. */
@@ -225,7 +253,17 @@ export async function applyCategoryReply(
       return;
     }
     // "fetch", or a version bump with no category to apply it to.
-    await fetchAndSave(gen);
+    if (
+      saved &&
+      reply.category &&
+      typeof reply.categoriesVersion === "number" &&
+      reply.categoriesVersion > saved.version
+    ) {
+      // Show it now, version unchanged, so a failed refetch cannot lose it.
+      // (A reply older than the saved copy adds nothing: that copy is newer.)
+      await save(withCategory(saved, reply.category), gen);
+    }
+    await fetchAndSave(gen, { fresh: true });
   } catch (error) {
     logger.error("Failed to apply category reply:", error);
   }
@@ -252,7 +290,7 @@ export async function removeExpenseCategory(
     try {
       const saved = await readSavedCategories();
       if (saved) await save(withoutCategory(saved, category._id), gen);
-      await fetchAndSave(gen);
+      await fetchAndSave(gen, { fresh: true });
     } catch (inner) {
       logger.error("Failed to drop a removed category:", inner);
     }
@@ -268,7 +306,9 @@ export async function removeExpenseCategory(
       // Deleted, but the reply carried no version: drop it, version unchanged.
       await save(withoutCategory(saved, category._id), gen);
     } else if (action === "fetch") {
-      await fetchAndSave(gen);
+      // Drop it now, version unchanged, so a failed refetch cannot bring it back.
+      if (saved) await save(withoutCategory(saved, category._id), gen);
+      await fetchAndSave(gen, { fresh: true });
     }
   } catch (error) {
     logger.error("Failed to apply category removal:", error);
@@ -282,5 +322,6 @@ export async function removeExpenseCategory(
 export function resetCategorySync(): void {
   generation += 1;
   inFlight = null;
+  queued = null;
   notify(null);
 }
