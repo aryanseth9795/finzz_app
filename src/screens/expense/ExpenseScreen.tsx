@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { Avatar } from "../../components/ui";
 import { useTheme } from "../../contexts/ThemeContext";
 import { store, useAppSelector, useAppDispatch } from "../../store";
@@ -39,14 +40,24 @@ import { describeError } from "../../api/axios";
 import { CACHE_DURATION } from "../../constants/api";
 import { logger } from "../../utils/logger";
 import { pickInitialLedger, readCachedPage } from "../../utils/expenseLedger";
-import { formatDate } from "../../utils/dates";
+import { formatNumber } from "../../utils/money";
+import { withAlpha } from "../../utils/chartPalette";
 import {
-  isStorableCategory,
-  normalizeCategoryName,
-} from "../../utils/expenseCategories";
+  categoryColorIndex,
+  categoryInitial,
+  dayKeyOf,
+  dayLabel,
+  dayTotals,
+  displayCategory,
+  localDayKey,
+  rowText,
+  startsNewDay,
+} from "../../utils/expenseList";
 
 // Text/icons on coloured fills stay white; the theme has no on-primary token.
 const ON_ACCENT = "#FFFFFF";
+// Room under the last row so the + button (56 tall, 24 from the bottom) never covers it.
+const LIST_BOTTOM_SPACE = 96;
 
 const ExpenseScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
@@ -60,6 +71,12 @@ const ExpenseScreen = ({ navigation }: any) => {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showLedgerPicker, setShowLedgerPicker] = useState(false);
+
+  // Day totals over the rows loaded so far; a day split across pages fills in
+  // as the next page arrives.
+  const totalsByDay = useMemo(() => dayTotals(expenses), [expenses]);
+  const todayKey = localDayKey();
+  const isLedgerOpen = activeLedger?.status === "open";
 
   /**
    * One trigger, not two.
@@ -532,10 +549,17 @@ const ExpenseScreen = ({ navigation }: any) => {
             ]}
           >
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              Total Debited
+              Money out
             </Text>
-            <Text style={[styles.statValue, { color: colors.debit }]}>
-              ₹{totalDebited.toFixed(2)}
+            {/* One line that shrinks to fit: a six-figure month must not
+                spill out of a half-width tile. */}
+            <Text
+              style={[styles.statValue, { color: colors.debit }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+            >
+              ₹{formatNumber(totalDebited)}
             </Text>
           </View>
           <View
@@ -545,10 +569,15 @@ const ExpenseScreen = ({ navigation }: any) => {
             ]}
           >
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              Total Credited
+              Money in
             </Text>
-            <Text style={[styles.statValue, { color: colors.credit }]}>
-              ₹{totalCredited.toFixed(2)}
+            <Text
+              style={[styles.statValue, { color: colors.credit }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+            >
+              ₹{formatNumber(totalCredited)}
             </Text>
           </View>
         </View>
@@ -557,147 +586,149 @@ const ExpenseScreen = ({ navigation }: any) => {
             textAlign: "center",
             fontSize: 13,
             color: colors.textSecondary,
-            marginTop: 6,
+            marginTop: 8,
           }}
+          numberOfLines={1}
         >
-          Net:{" "}
+          Net{" "}
           <Text
             style={{
               color: isSurplus ? colors.credit : colors.debit,
               fontWeight: "600",
+              fontVariant: ["tabular-nums"],
             }}
           >
-            {isSurplus ? "+" : ""}₹{Math.abs(net).toFixed(2)}
+            {isSurplus ? "+" : "−"}₹{formatNumber(Math.abs(net))}
           </Text>{" "}
-          {isSurplus ? "(Surplus)" : "(Deficit)"}
+          {isSurplus ? "surplus" : "deficit"}
         </Text>
       </View>
     );
   };
 
-  const renderTableHeader = () => (
-    <View style={[styles.tableHeader, { backgroundColor: colors.surface }]}>
-      <Text
-        style={[
-          styles.headerCell,
-          styles.dateCell,
-          { color: colors.textSecondary },
-        ]}
-      >
-        Date
-      </Text>
-      <Text
-        style={[
-          styles.headerCell,
-          styles.amountCell,
-          { color: colors.textSecondary },
-        ]}
-      >
-        Amount
-      </Text>
-      <Text
-        style={[
-          styles.headerCell,
-          styles.actionsCell,
-          { color: colors.textSecondary },
-        ]}
-      >
-        Actions
-      </Text>
-    </View>
-  );
-
-  const renderExpenseRow = ({ item: expense }: { item: IExpense }) => {
-    // Blank and the old "-" placeholder get no chip, same rule as the
-    // suggestions on Add/Edit Expense.
-    const category = isStorableCategory(expense.category)
-      ? normalizeCategoryName(expense.category)
-      : null;
+  /**
+   * One row of the grouped list. The first row of each day carries that day's
+   * header and totals. While the month is open, a tap edits the row and a
+   * long-press deletes it (with the confirmation in `handleDelete`); in a
+   * closed month the rows are read-only, as the old edit/delete buttons were.
+   *
+   * Every text is one line with an ellipsis and the amount never shrinks, so
+   * a long remark or category can't push anything off the row.
+   */
+  const renderExpenseRow = ({
+    item: expense,
+    index,
+  }: {
+    item: IExpense;
+    index: number;
+  }) => {
+    const isCredit = (expense.type || "debit") === "credit";
+    const category = displayCategory(expense.category);
+    const { title, subtitle } = rowText(expense);
+    const palette = colors.chart.categorical;
+    const tint = category
+      ? palette[categoryColorIndex(category, palette.length)]
+      : isCredit
+        ? colors.credit
+        : colors.textSecondary;
+    const dayKey = dayKeyOf(expense);
+    const day = startsNewDay(expenses, index) ? totalsByDay[dayKey] : null;
+    const amountText = `${isCredit ? "+" : "−"}₹${formatNumber(expense.amount)}`;
 
     return (
-      <View
-        style={[
-          styles.row,
-          { backgroundColor: colors.surface, borderBottomColor: colors.border },
-        ]}
-      >
-        {/* First Line: Date, Amount, Actions */}
-        <View style={styles.rowTop}>
-          <Text style={[styles.cell, styles.dateCell, { color: colors.text }]}>
-            {formatDate(expense.date, "DD MMM")}
-          </Text>
-          <Text
-            style={[
-              styles.cell,
-              styles.amountCell,
-              {
-                color:
-                  (expense.type || "debit") === "credit"
-                    ? colors.credit
-                    : colors.debit,
-              },
-            ]}
+      <View>
+        {day && (
+          <View style={styles.dayHeader}>
+            <Text
+              style={[styles.dayLabel, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {dayLabel(dayKey, todayKey)}
+            </Text>
+            <Text
+              style={[styles.dayTotal, { color: colors.textSecondary }]}
+              numberOfLines={1}
+            >
+              {day.debit > 0 ? `−₹${formatNumber(day.debit)}` : ""}
+              {day.debit > 0 && day.credit > 0 ? "  " : ""}
+              {day.credit > 0 ? (
+                <Text style={{ color: colors.credit }}>
+                  +₹{formatNumber(day.credit)}
+                </Text>
+              ) : null}
+            </Text>
+          </View>
+        )}
+        <Pressable
+          onPress={
+            isLedgerOpen
+              ? () => navigation.navigate("AddEditExpense", { expense })
+              : undefined
+          }
+          onLongPress={
+            isLedgerOpen
+              ? () => {
+                  void Haptics.impactAsync(
+                    Haptics.ImpactFeedbackStyle.Medium,
+                  ).catch(() => {});
+                  handleDelete(expense._id);
+                }
+              : undefined
+          }
+          disabled={!isLedgerOpen}
+          style={({ pressed }) => [
+            styles.row,
+            pressed && { backgroundColor: colors.surface },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`${title}${subtitle ? `, ${subtitle}` : ""}, ${amountText}`}
+          accessibilityHint={
+            isLedgerOpen
+              ? "Opens the expense to edit. Long-press to delete it."
+              : undefined
+          }
+        >
+          <View
+            style={[styles.avatar, { backgroundColor: withAlpha(tint, 0.16) }]}
           >
-            {(expense.type || "debit") === "credit" ? "+" : "-"}₹
-            {expense.amount.toFixed(2)}
-          </Text>
-          <View style={styles.actionsCell}>
-            {activeLedger?.status === "open" && (
-              <>
-                <TouchableOpacity
-                  onPress={() =>
-                    navigation.navigate("AddEditExpense", { expense })
-                  }
-                  style={styles.actionButton}
-                >
-                  <Ionicons
-                    name="create-outline"
-                    size={18}
-                    color={colors.primary}
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => handleDelete(expense._id)}
-                  style={styles.actionButton}
-                >
-                  <Ionicons
-                    name="trash-outline"
-                    size={18}
-                    color={colors.danger}
-                  />
-                </TouchableOpacity>
-              </>
+            {category ? (
+              <Text style={[styles.avatarText, { color: tint }]}>
+                {categoryInitial(category)}
+              </Text>
+            ) : (
+              <Ionicons
+                name={isCredit ? "arrow-down" : "wallet-outline"}
+                size={18}
+                color={tint}
+              />
             )}
           </View>
-        </View>
-        {/* Second Line: Category chip, then remarks */}
-        {(category || expense.remarks) && (
-          <View style={styles.rowDetails}>
-            {category && (
-              <View
-                style={[
-                  styles.categoryChip,
-                  { backgroundColor: colors.primarySurface },
-                ]}
-              >
-                <Text
-                  style={[styles.categoryChipText, { color: colors.primary }]}
-                  numberOfLines={1}
-                >
-                  {category}
-                </Text>
-              </View>
-            )}
-            {expense.remarks && (
+          <View style={styles.rowText}>
+            <Text
+              style={[styles.rowTitle, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {title}
+            </Text>
+            {subtitle && (
               <Text
-                style={[styles.remarksText, { color: colors.textSecondary }]}
-                numberOfLines={2}
+                style={[styles.rowSubtitle, { color: colors.textSecondary }]}
+                numberOfLines={1}
               >
-                {expense.remarks}
+                {subtitle}
               </Text>
             )}
           </View>
-        )}
+          <Text
+            style={[
+              styles.rowAmount,
+              { color: isCredit ? colors.credit : colors.text },
+            ]}
+            numberOfLines={1}
+          >
+            {amountText}
+          </Text>
+        </Pressable>
       </View>
     );
   };
@@ -767,8 +798,7 @@ const ExpenseScreen = ({ navigation }: any) => {
           data={expenses}
           keyExtractor={(item) => item._id}
           renderItem={renderExpenseRow}
-          ListHeaderComponent={renderTableHeader}
-          stickyHeaderIndices={[0]}
+          contentContainerStyle={{ paddingBottom: LIST_BOTTOM_SPACE }}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
           }
@@ -872,12 +902,20 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   statCard: {
-    padding: 4,
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     alignItems: "center",
   },
   statLabel: { fontSize: 12, fontWeight: "600" },
-  statValue: { fontSize: 24, fontWeight: "700", marginTop: 4 },
+  statValue: {
+    alignSelf: "stretch",
+    textAlign: "center",
+    fontSize: 24,
+    fontWeight: "700",
+    marginTop: 4,
+    fontVariant: ["tabular-nums"],
+  },
   closeLedgerButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -890,54 +928,48 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   closeLedgerText: { fontSize: 14, fontWeight: "600" },
-  tableHeader: {
+  dayHeader: {
     flexDirection: "row",
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    borderBottomWidth: 2,
-    borderTopWidth: 1,
-    alignItems: "center",
+    alignItems: "baseline",
     justifyContent: "space-between",
-  },
-  headerCell: { fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
-  row: {
-    paddingVertical: 12,
+    gap: 12,
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
+    paddingTop: 18,
+    paddingBottom: 6,
   },
-  rowTop: {
+  dayLabel: { flexShrink: 1, fontSize: 13, fontWeight: "700" },
+  dayTotal: {
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    // justifyContent: "space-between",
+    gap: 12,
+    minHeight: 60,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
-  cell: { fontSize: 14 },
-  dateCell: { flex: 1, fontWeight: "600" },
-  amountCell: { flex: 2, fontWeight: "700", textAlign: "center" },
-  actionsCell: {
-    flexDirection: "row",
-    gap: 8,
-    width: 70,
-    justifyContent: "flex-end",
-  },
-  actionButton: { padding: 4 },
-  rowDetails: {
-    flexDirection: "row",
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     alignItems: "center",
-    gap: 8,
-    marginTop: 6,
+    justifyContent: "center",
   },
-  categoryChip: {
-    maxWidth: "45%",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-  },
-  categoryChipText: { fontSize: 12, fontWeight: "600" },
-  remarksText: {
-    flexShrink: 1,
-    fontSize: 13,
-    paddingLeft: 0,
-    fontStyle: "italic",
+  avatarText: { fontSize: 15, fontWeight: "700" },
+  // minWidth 0 lets the text column shrink and ellipsize instead of pushing
+  // the amount off the row.
+  rowText: { flex: 1, minWidth: 0 },
+  rowTitle: { fontSize: 15, fontWeight: "500" },
+  rowSubtitle: { fontSize: 12, marginTop: 2 },
+  rowAmount: {
+    flexShrink: 0,
+    fontSize: 15,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
   },
   emptyState: { alignItems: "center", paddingVertical: 48 },
   emptyText: { fontSize: 16, marginTop: 12 },
