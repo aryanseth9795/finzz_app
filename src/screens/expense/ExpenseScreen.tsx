@@ -40,6 +40,10 @@ import { CACHE_DURATION } from "../../constants/api";
 import { logger } from "../../utils/logger";
 import { pickInitialLedger, readCachedPage } from "../../utils/expenseLedger";
 import { formatDate } from "../../utils/dates";
+import {
+  isStorableCategory,
+  normalizeCategoryName,
+} from "../../utils/expenseCategories";
 
 // Text/icons on coloured fills stay white; the theme has no on-primary token.
 const ON_ACCENT = "#FFFFFF";
@@ -603,73 +607,100 @@ const ExpenseScreen = ({ navigation }: any) => {
     </View>
   );
 
-  const renderExpenseRow = ({ item: expense }: { item: IExpense }) => (
-    <View
-      style={[
-        styles.row,
-        { backgroundColor: colors.surface, borderBottomColor: colors.border },
-      ]}
-    >
-      {/* First Line: Date, Amount, Actions */}
-      <View style={styles.rowTop}>
-        <Text style={[styles.cell, styles.dateCell, { color: colors.text }]}>
-          {formatDate(expense.date, "DD MMM")}
-        </Text>
-        <Text
-          style={[
-            styles.cell,
-            styles.amountCell,
-            {
-              color:
-                (expense.type || "debit") === "credit"
-                  ? colors.credit
-                  : colors.debit,
-            },
-          ]}
-        >
-          {(expense.type || "debit") === "credit" ? "+" : "-"}₹
-          {expense.amount.toFixed(2)}
-        </Text>
-        <View style={styles.actionsCell}>
-          {activeLedger?.status === "open" && (
-            <>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate("AddEditExpense", { expense })
-                }
-                style={styles.actionButton}
-              >
-                <Ionicons
-                  name="create-outline"
-                  size={18}
-                  color={colors.primary}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleDelete(expense._id)}
-                style={styles.actionButton}
-              >
-                <Ionicons
-                  name="trash-outline"
-                  size={18}
-                  color={colors.danger}
-                />
-              </TouchableOpacity>
-            </>
-          )}
+  const renderExpenseRow = ({ item: expense }: { item: IExpense }) => {
+    // Blank and the old "-" placeholder get no chip, same rule as the
+    // suggestions on Add/Edit Expense.
+    const category = isStorableCategory(expense.category)
+      ? normalizeCategoryName(expense.category)
+      : null;
+
+    return (
+      <View
+        style={[
+          styles.row,
+          { backgroundColor: colors.surface, borderBottomColor: colors.border },
+        ]}
+      >
+        {/* First Line: Date, Amount, Actions */}
+        <View style={styles.rowTop}>
+          <Text style={[styles.cell, styles.dateCell, { color: colors.text }]}>
+            {formatDate(expense.date, "DD MMM")}
+          </Text>
+          <Text
+            style={[
+              styles.cell,
+              styles.amountCell,
+              {
+                color:
+                  (expense.type || "debit") === "credit"
+                    ? colors.credit
+                    : colors.debit,
+              },
+            ]}
+          >
+            {(expense.type || "debit") === "credit" ? "+" : "-"}₹
+            {expense.amount.toFixed(2)}
+          </Text>
+          <View style={styles.actionsCell}>
+            {activeLedger?.status === "open" && (
+              <>
+                <TouchableOpacity
+                  onPress={() =>
+                    navigation.navigate("AddEditExpense", { expense })
+                  }
+                  style={styles.actionButton}
+                >
+                  <Ionicons
+                    name="create-outline"
+                    size={18}
+                    color={colors.primary}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => handleDelete(expense._id)}
+                  style={styles.actionButton}
+                >
+                  <Ionicons
+                    name="trash-outline"
+                    size={18}
+                    color={colors.danger}
+                  />
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
         </View>
+        {/* Second Line: Category chip, then remarks */}
+        {(category || expense.remarks) && (
+          <View style={styles.rowDetails}>
+            {category && (
+              <View
+                style={[
+                  styles.categoryChip,
+                  { backgroundColor: colors.primarySurface },
+                ]}
+              >
+                <Text
+                  style={[styles.categoryChipText, { color: colors.primary }]}
+                  numberOfLines={1}
+                >
+                  {category}
+                </Text>
+              </View>
+            )}
+            {expense.remarks && (
+              <Text
+                style={[styles.remarksText, { color: colors.textSecondary }]}
+                numberOfLines={2}
+              >
+                {expense.remarks}
+              </Text>
+            )}
+          </View>
+        )}
       </View>
-      {/* Second Line: Remarks */}
-      {expense.remarks && (
-        <Text
-          style={[styles.remarksText, { color: colors.textSecondary }]}
-          numberOfLines={2}
-        >
-          {expense.remarks}
-        </Text>
-      )}
-    </View>
-  );
+    );
+  };
 
   return (
     <SafeAreaView
@@ -889,9 +920,22 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   actionButton: { padding: 4 },
-  remarksText: {
-    fontSize: 13,
+  rowDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     marginTop: 6,
+  },
+  categoryChip: {
+    maxWidth: "45%",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+  categoryChipText: { fontSize: 12, fontWeight: "600" },
+  remarksText: {
+    flexShrink: 1,
+    fontSize: 13,
     paddingLeft: 0,
     fontStyle: "italic",
   },
