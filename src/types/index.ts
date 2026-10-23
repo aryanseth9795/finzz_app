@@ -8,6 +8,11 @@ export interface IUser {
   avatar?: string;
   email?: string;
   emailVerified?: boolean;
+  /**
+   * Version of this user's expense category list. Missing on accounts whose
+   * list was never filled; 0 means filled and empty.
+   */
+  expenseCategoriesVersion?: number;
 }
 
 export interface AuthResponse {
@@ -371,4 +376,28 @@ export interface INotesPage {
   notes: INote[];
   nextCursor: string | null;
   hasMore: boolean;
+}
+
+// ========================
+// Expense Category Types
+// ========================
+export type ExpenseCategoryType = "debit" | "credit";
+
+/** One saved category suggestion, as returned by GET /expenses/categories. */
+export interface IExpenseCategory {
+  _id: string;
+  name: string;
+  type: ExpenseCategoryType;
+}
+
+/** The phone's saved copy of the list, keyed by the server version it matches. */
+export interface ExpenseCategoriesCache {
+  version: number;
+  categories: IExpenseCategory[];
+}
+
+/** Category fields the server may add to an add/edit expense reply. */
+export interface ExpenseCategoryReply {
+  category?: IExpenseCategory;
+  categoriesVersion?: number;
 }
