@@ -302,7 +302,9 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.form}>
+      {/* "handled": with the keyboard up, a tap on a category chip must pick
+          it, not just close the keyboard. */}
+      <ScrollView style={styles.form} keyboardShouldPersistTaps="handled">
         {/* Amount */}
         <View style={styles.field}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>
