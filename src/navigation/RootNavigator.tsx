@@ -24,6 +24,10 @@ import { setLogoutCallback } from "../api/axios";
 import { getProfileApi, refreshTokenApi } from "../api/authApi";
 import { tokenManager } from "../utils/tokenManager";
 import { cacheManager } from "../utils/cacheManager";
+import {
+  resetCategorySync,
+  syncCategoriesOnLaunch,
+} from "../utils/expenseCategorySync";
 import { useNotifications } from "../hooks/useNotifications";
 import { useAppUpdates } from "../hooks/useAppUpdates";
 import { useForceUpdate } from "../hooks/useForceUpdate";
@@ -81,6 +85,8 @@ const RootNavigator = () => {
    */
   const signOut = useCallback(
     async (reason?: string) => {
+      // First, so a category fetch still in flight cannot write after the wipe.
+      resetCategorySync();
       await tokenManager.clearAll();
       await cacheManager.clearAll();
       dispatch(logoutAction());
@@ -140,6 +146,8 @@ const RootNavigator = () => {
 
         if (profile.data?.success && profile.data.user) {
           dispatch(setCredentials(profile.data.user));
+          // Background only: never blocks the splash screen, never throws.
+          void syncCategoriesOnLaunch(profile.data.user.expenseCategoriesVersion);
           await tokenManager.setUserData(JSON.stringify(profile.data.user));
         }
       } catch {

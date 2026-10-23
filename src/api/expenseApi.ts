@@ -6,6 +6,7 @@ export const addExpenseApi = (data: {
   remarks?: string;
   category?: string;
   type?: "debit" | "credit";
+  newCategory?: boolean;
 }) => api.post("/expenses", data);
 
 export const getExpensesApi = (
@@ -36,3 +37,8 @@ export const closeLedgerApi = (year: number, month: number) =>
 
 export const getExpenseExportHtmlApi = (ledgerId: string) =>
   api.get("/expenses/export", { params: { ledgerId } });
+
+export const getExpenseCategoriesApi = () => api.get("/expenses/categories");
+
+export const deleteExpenseCategoryApi = (id: string) =>
+  api.delete(`/expenses/categories/${id}`);
