@@ -1,4 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Animated,
   Pressable,
@@ -9,9 +15,11 @@ import {
   ViewStyle,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { useTheme } from "../../contexts/ThemeContext";
-import { IAdvancedExpenseStats } from "../../types";
+import { ExpenseHomeParams, IAdvancedExpenseStats } from "../../types";
 import { formatCurrency } from "../../utils/money";
 import { formatDate } from "../../utils/dates";
 import { withAlpha } from "../../utils/chartPalette";
@@ -45,6 +53,15 @@ import {
   daysInMonth,
 } from "../../components/charts/calendar";
 import { formatAxisAmount } from "../../components/charts/scale";
+import {
+  CATEGORY_LIST_LIMIT,
+  buildCategoryRows,
+  categoryFilterFor,
+  donutSlices,
+  isRowHighlighted,
+  transactionCountLabel,
+  visibleRowCount,
+} from "./categoryRows";
 
 /** Text/icon colour on top of a solid brand-coloured fill. */
 export const ON_ACCENT = "#FFFFFF";
@@ -827,16 +844,8 @@ export const InsightsSection = React.memo(function InsightsSection({
 // Where it went
 // ------------------------------------------------------------------
 
-interface CategoryRow {
-  name: string;
-  total: number;
-  isOthers: boolean;
-  trend: number[] | null;
-}
-
-const TOP_CATEGORIES = 7;
-/** Slices below this share (percent) are folded into "Others". */
-const MIN_SLICE_PCT = 1;
+/** The Expense stack route a category row opens. */
+type CategoryLinks = { ExpenseHome: ExpenseHomeParams | undefined };
 
 export const CategoriesSection = React.memo(function CategoriesSection({
   stats,
@@ -846,74 +855,87 @@ export const CategoriesSection = React.memo(function CategoriesSection({
   const { theme } = useTheme();
   const { colors, fontSize, fontWeight, spacing, borderRadius } = theme;
   const palette = colors.chart.categorical;
+  // Neutral, so "Others" never reads as one more category; the chart track
+  // colour would vanish into the donut's own track ring.
+  const othersColor = colors.textTertiary;
+  const navigation = useNavigation<NativeStackNavigationProp<CategoryLinks>>();
   const [selected, setSelected] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
 
-  const categories = stats.categoryBreakdown;
+  const { year, month } = stats.selectedMonth;
   const totalSpend = stats.summary.totalDebits;
 
-  const { rows, catSum, concentration } = useMemo(() => {
-    const sorted = [...(categories ?? [])]
-      .filter((c) => Number.isFinite(c.total) && c.total > 0)
-      .sort((a, b) => b.total - a.total);
-    const sum = sorted.reduce((a, c) => a + c.total, 0);
-    // Sorted descending, so the slices under 1% are a suffix: cut at the
-    // first one (or at TOP_CATEGORIES) and fold the rest into "Others".
-    let cut = Math.min(sorted.length, TOP_CATEGORIES);
-    const firstTiny = sorted.findIndex(
-      (c) => sum > 0 && (c.total / sum) * 100 < MIN_SLICE_PCT,
-    );
-    if (firstTiny !== -1 && firstTiny < cut) cut = firstTiny;
-    const top = sorted.slice(0, cut);
-    const rest = sorted.slice(cut);
-    const trendByName = new Map<string, number[]>();
-    for (const t of stats.categoryTrend ?? []) {
-      trendByName.set(
-        t.name,
-        t.months.map((m) => m.total),
-      );
-    }
-    const out: CategoryRow[] = top.map((c) => ({
-      name: c.name,
-      total: c.total,
-      isOthers: false,
-      trend: trendByName.get(c.name) ?? null,
-    }));
-    if (rest.length > 0) {
-      out.push({
-        name: `Others (${rest.length})`,
-        total: rest.reduce((a, c) => a + c.total, 0),
-        isOthers: true,
-        trend: null,
-      });
-    }
-    return {
-      rows: out,
-      catSum: sum,
-      concentration: topConcentration(sorted, 3),
-    };
-  }, [categories, stats.categoryTrend]);
+  const rows = useMemo(
+    () => buildCategoryRows(stats.categoryBreakdown, stats.categoryTrend),
+    [stats.categoryBreakdown, stats.categoryTrend],
+  );
+  const concentration = useMemo(
+    () =>
+      topConcentration(
+        (stats.categoryBreakdown ?? []).filter(
+          (c) => Number.isFinite(c.total) && c.total > 0,
+        ),
+        3,
+      ),
+    [stats.categoryBreakdown],
+  );
+  // Slice i is row i up to othersStart; the "Others" slice covers the rest.
+  const { slices, othersStart } = useMemo(() => donutSlices(rows), [rows]);
 
   // The data (and so the donut) can change under a held selection.
   useEffect(() => setSelected(null), [rows]);
+  // Another month opens collapsed.
+  useEffect(() => setExpanded(false), [year, month]);
 
-  // Same array, same order as the list, so donut index === row index.
   const donutData = useMemo<DonutDatum[]>(
     () =>
-      rows.map((r, i) => ({
-        label: r.name,
-        value: r.total,
-        color: palette[i % palette.length],
+      slices.map((s, i) => ({
+        label: s.label,
+        value: s.value,
+        color: s.isOthers ? othersColor : palette[i % palette.length],
       })),
-    [rows, palette],
+    [slices, palette, othersColor],
   );
 
-  const maxTotal = Math.max(1, ...rows.map((r) => r.total));
+  const onSelectSlice = useCallback(
+    (index: number | null) => {
+      setSelected(index);
+      // The folded rows may sit past the first ten: open the list to them.
+      if (index !== null && index === othersStart) setExpanded(true);
+    },
+    [othersStart],
+  );
+
+  const toggleExpanded = useCallback(() => {
+    // Collapsing hides the rows the "Others" slice points at.
+    if (expanded && selected !== null && selected === othersStart) {
+      setSelected(null);
+    }
+    setExpanded(!expanded);
+  }, [expanded, selected, othersStart]);
+
+  const openCategory = useCallback(
+    (name: string) => {
+      // popTo goes back to the Expenses list already under this screen
+      // instead of pushing a second one: both would share the Redux month
+      // list, so the filtered copy would change the original underneath.
+      navigation.popTo("ExpenseHome", {
+        filter: categoryFilterFor(name, { year, month }),
+      } satisfies ExpenseHomeParams);
+    },
+    [navigation, year, month],
+  );
+
+  const shown = visibleRowCount(rows.length, expanded);
+  const hidden = rows.length - shown;
+  const canCollapse = expanded && rows.length > CATEGORY_LIST_LIMIT;
+  const maxTotal = Math.max(1, rows[0]?.total ?? 0);
 
   return (
     <Card>
       <SectionHeader
         title="Where it went"
-        subtitle="Spending by category"
+        subtitle="Spending by category. Tap one to see its expenses."
       />
       {rows.length === 0 ? (
         <Text style={{ color: colors.textSecondary, fontSize: fontSize.sm }}>
@@ -929,7 +951,7 @@ export const CategoriesSection = React.memo(function CategoriesSection({
               centerLabel="Spent"
               centerValue={formatCurrency(totalSpend)}
               selectedIndex={selected}
-              onSelect={setSelected}
+              onSelect={onSelectSlice}
             />
           </View>
 
@@ -950,66 +972,98 @@ export const CategoriesSection = React.memo(function CategoriesSection({
           ) : null}
 
           <View style={{ gap: spacing.xs }}>
-            {rows.map((r, i) => {
+            {rows.slice(0, shown).map((r, i) => {
               const color = palette[i % palette.length];
-              const isSel = selected === i;
-              const share = catSum > 0 ? (r.total / catSum) * 100 : 0;
+              const folded = othersStart !== null && i >= othersStart;
+              const tint = isRowHighlighted(i, selected, othersStart)
+                ? folded
+                  ? withAlpha(othersColor, 0.12)
+                  : withAlpha(color, 0.14)
+                : null;
+              const countLabel =
+                r.count > 0 ? transactionCountLabel(r.count) : null;
+              const a11yLabel = [
+                r.name,
+                formatCurrency(r.total),
+                `${sharePct(r.share)} of spending`,
+                countLabel,
+              ]
+                .filter(Boolean)
+                .join(", ");
               return (
-                <View
+                <Pressable
                   key={r.name}
-                  style={{
+                  onPress={() => openCategory(r.name)}
+                  accessibilityRole="button"
+                  accessibilityLabel={a11yLabel}
+                  accessibilityHint="Shows these expenses"
+                  style={({ pressed }) => ({
                     paddingVertical: spacing.sm,
                     paddingHorizontal: spacing.sm,
                     borderRadius: borderRadius.md,
-                    backgroundColor: isSel
-                      ? withAlpha(color, 0.14)
-                      : "transparent",
-                  }}
+                    backgroundColor:
+                      tint ?? (pressed ? colors.chart.track : "transparent"),
+                    opacity: tint && pressed ? 0.8 : 1,
+                  })}
                 >
                   <View style={[styles.row, { gap: spacing.sm }]}>
                     <View
                       style={[styles.legendDot, { backgroundColor: color }]}
                     />
-                    <Text
-                      numberOfLines={1}
-                      style={{
-                        flex: 1,
-                        color: colors.text,
-                        fontSize: fontSize.md,
-                        fontWeight: fontWeight.medium,
-                      }}
-                    >
-                      {r.name}
-                    </Text>
+                    <View style={styles.catName}>
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: colors.text,
+                          fontSize: fontSize.md,
+                          fontWeight: fontWeight.medium,
+                        }}
+                      >
+                        {r.name}
+                      </Text>
+                      {countLabel ? (
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            color: colors.textSecondary,
+                            fontSize: fontSize.xs,
+                            marginTop: 1,
+                          }}
+                        >
+                          {countLabel}
+                        </Text>
+                      ) : null}
+                    </View>
                     {r.trend && r.trend.length > 1 ? (
                       <Sparkline
                         data={r.trend}
                         color={color}
-                        width={48}
+                        width={44}
                         height={20}
                       />
                     ) : null}
-                    <Text
-                      style={{
-                        color: colors.textSecondary,
-                        fontSize: fontSize.sm,
-                        width: 40,
-                        textAlign: "right",
-                      }}
-                    >
-                      {sharePct(share)}
-                    </Text>
-                    <Text
-                      style={{
-                        color: colors.text,
-                        fontSize: fontSize.sm,
-                        fontWeight: fontWeight.semibold,
-                        minWidth: 76,
-                        textAlign: "right",
-                      }}
-                    >
-                      {formatCurrency(r.total)}
-                    </Text>
+                    <View style={styles.catNumbers}>
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: colors.text,
+                          fontSize: fontSize.sm,
+                          fontWeight: fontWeight.semibold,
+                        }}
+                      >
+                        {formatCurrency(r.total)}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={{
+                          color: colors.textSecondary,
+                          fontSize: fontSize.xs,
+                          marginTop: 1,
+                        }}
+                      >
+                        {sharePct(r.share)}
+                      </Text>
+                    </View>
                   </View>
                   <View
                     style={[
@@ -1030,9 +1084,49 @@ export const CategoriesSection = React.memo(function CategoriesSection({
                       ]}
                     />
                   </View>
-                </View>
+                </Pressable>
               );
             })}
+
+            {hidden > 0 || canCollapse ? (
+              <Pressable
+                onPress={toggleExpanded}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  hidden > 0
+                    ? `Show ${hidden} more ${
+                        hidden === 1 ? "category" : "categories"
+                      }`
+                    : "Show fewer categories"
+                }
+                style={({ pressed }) => [
+                  styles.showMore,
+                  {
+                    gap: spacing.xs,
+                    paddingVertical: spacing.sm,
+                    borderRadius: borderRadius.md,
+                    backgroundColor: pressed
+                      ? colors.chart.track
+                      : "transparent",
+                  },
+                ]}
+              >
+                <Text
+                  style={{
+                    color: colors.primary,
+                    fontSize: fontSize.sm,
+                    fontWeight: fontWeight.semibold,
+                  }}
+                >
+                  {hidden > 0 ? `Show ${hidden} more` : "Show less"}
+                </Text>
+                <Ionicons
+                  name={hidden > 0 ? "chevron-down" : "chevron-up"}
+                  size={16}
+                  color={colors.primary}
+                />
+              </Pressable>
+            ) : null}
           </View>
         </>
       )}
@@ -1542,6 +1636,15 @@ const styles = StyleSheet.create({
   },
   barTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
   barFill: { height: 6, borderRadius: 3 },
+  // Where it went: the name column gives way, the numbers never shrink.
+  catName: { flex: 1, minWidth: 0 },
+  catNumbers: { flexShrink: 0, alignItems: "flex-end" },
+  showMore: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "stretch",
+  },
   footerRule: {
     flexDirection: "row",
     alignItems: "center",
