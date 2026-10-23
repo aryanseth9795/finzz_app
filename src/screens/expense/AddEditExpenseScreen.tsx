@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -31,7 +31,29 @@ import {
   pickerMinimumDate,
   pickerMaximumDate,
 } from "../../utils/dates";
-import { IExpense } from "../../types";
+import {
+  normalizeCategoryName,
+  isStorableCategory,
+  chipsFor,
+  findCategory,
+  isNewCategory,
+  resolveSpelling,
+  categoryChangedOnEdit,
+} from "../../utils/expenseCategories";
+import {
+  readSavedCategories,
+  subscribeCategories,
+  ensureCategories,
+  applyCategoryReply,
+  removeExpenseCategory,
+} from "../../utils/expenseCategorySync";
+import {
+  IExpense,
+  IExpenseCategory,
+  ExpenseCategoriesCache,
+  ExpenseCategoryReply,
+} from "../../types";
+import CategoryChips from "./CategoryChips";
 
 // Text/icons on coloured fills stay white; the theme has no on-primary token.
 const ON_ACCENT = "#FFFFFF";
@@ -58,6 +80,44 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
   const [category, setCategory] = useState(expense?.category || "");
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [cache, setCache] = useState<ExpenseCategoriesCache | null>(null);
+
+  // The screen reads only the saved category list. `ensureCategories` fetches
+  // it once when there is none: offline at launch, or a fresh login, which
+  // doesn't run the launch sync.
+  useEffect(() => {
+    let active = true;
+    // A write that lands first is newer than the read, so the read yields.
+    let heard = false;
+    readSavedCategories().then((saved) => {
+      if (active && !heard) setCache(saved);
+    });
+    const unsubscribe = subscribeCategories((next) => {
+      heard = true;
+      setCache(next);
+    });
+    void ensureCategories();
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const list = useMemo(() => cache?.categories ?? [], [cache]);
+  const chips = useMemo(
+    () => chipsFor(list, txnType, category),
+    [list, txnType, category],
+  );
+  const selectedId = findCategory(list, txnType, category)?._id ?? null;
+
+  // Never rejects: CategoryChips doesn't await it. On failure the chip stays.
+  const handleRemoveCategory = async (c: IExpenseCategory) => {
+    try {
+      await removeExpenseCategory(c);
+    } catch (error) {
+      Alert.alert("Could not remove", describeError(error));
+    }
+  };
 
   /**
    * Save an expense.
@@ -87,12 +147,44 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
       return;
     }
 
+    // Category fields (spec table 6.3), built once here so the "Add anyway"
+    // path after the duplicate check sends exactly the same data.
+    const normalized = normalizeCategoryName(category);
+    let categoryFields: { category?: string; newCategory?: true };
+    if (isStorableCategory(normalized)) {
+      if (
+        isEditing &&
+        !categoryChangedOnEdit(
+          { category: expense.category, type: expense.type || "debit" },
+          { category: normalized, type: txnType },
+        )
+      ) {
+        // An edit is resolved or flagged only when its category or type
+        // changed. Otherwise an amount-only edit of an old "Fodo" would bring
+        // back a chip the user removed, and an old "food" would be rewritten
+        // to "Food". The text is saved as before.
+        categoryFields = { category: category.trim() || undefined };
+      } else {
+        // The saved spelling when the list has it ("food" → "Food"). Flagged
+        // only when it doesn't, so the server adds it to the list.
+        categoryFields = {
+          category: resolveSpelling(list, txnType, normalized),
+        };
+        if (isNewCategory(list, txnType, normalized)) {
+          categoryFields.newCategory = true;
+        }
+      }
+    } else {
+      // Blank or the old "-" placeholder: saved as before, never flagged.
+      categoryFields = { category: normalized || undefined };
+    }
+
     const expenseData = {
       amount: parsed.value,
       // UTC midnight of the picked calendar date — see utils/dates.ts.
       date: toApiDate(date),
       remarks: remarks.trim() || undefined,
-      category: category.trim() || undefined,
+      ...categoryFields,
       type: txnType,
     };
 
@@ -102,9 +194,12 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         if (isEditing) {
           const response = await editExpenseApi(expense._id, expenseData);
           dispatch(updateExpense({ expense: response.data.expense }));
+          // Any category the server stored goes into the saved list (+1 rule).
+          void applyCategoryReply(response.data as ExpenseCategoryReply);
         } else {
           const response = await addExpenseApi(expenseData);
           dispatch(addExpense(response.data.expense));
+          void applyCategoryReply(response.data as ExpenseCategoryReply);
         }
 
         /**
@@ -378,6 +473,12 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
             onChangeText={setCategory}
             placeholder="e.g., Food, Transport, Shopping"
             placeholderTextColor={colors.inputPlaceholder}
+          />
+          <CategoryChips
+            chips={chips}
+            selectedId={selectedId}
+            onPick={setCategory}
+            onRemove={handleRemoveCategory}
           />
         </View>
 
