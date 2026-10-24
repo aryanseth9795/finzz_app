@@ -106,8 +106,10 @@ type ReportFilter = NonNullable<ExpenseHomeParams["filter"]>;
 /**
  * What the report's "Where it went" tap opens: the ledger of its month and
  * the filters for its category. The report's "Other" arrives as the category
- * "Other" plus `uncategorized`, and both are kept. A month with no ledger
- * can't be searched by month, so the search widens to all months.
+ * "Other" plus `uncategorized`, and both are kept. The report counts money
+ * out only, so its tap passes `type: "debit"`, kept here so the list (and its
+ * "Money out" chip) matches the report; no type means both. A month with no
+ * ledger can't be searched by month, so the search widens to all months.
  */
 export const filtersFromReport = (
   param: ReportFilter,
@@ -121,6 +123,7 @@ export const filtersFromReport = (
       ...EMPTY_EXPENSE_FILTERS,
       categories: category ? [category] : [],
       uncategorized: !!param.uncategorized,
+      type: param.type === "debit" || param.type === "credit" ? param.type : "all",
       scope: ledger ? "month" : "all",
     },
   };

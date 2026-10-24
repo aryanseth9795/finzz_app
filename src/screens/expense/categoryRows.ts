@@ -134,10 +134,13 @@ export const transactionCountLabel = (count: number): string =>
 
 /**
  * The Expenses-list filter a tap on a category row opens: that category in
- * the report's month. The report's "Other" bucket holds both uncategorized
- * rows (no tag, blank or "-") and rows literally named "Other", so it asks
- * for both; the server ORs a category with uncategorized, and the list then
- * shows exactly the rows the report counted.
+ * the report's month, money out only. The report's categories are built from
+ * debits alone, so the filter always asks for debits; without it a credit in
+ * the same category (for "Other", every untagged salary or refund) would show
+ * in the list but not in the report. The "Other" bucket holds both
+ * uncategorized rows (no tag, blank or "-") and rows literally named "Other",
+ * so it asks for both; the server ORs a category with uncategorized, and the
+ * list then shows exactly the rows the report counted.
  */
 export const categoryFilterFor = (
   name: string,
@@ -149,9 +152,11 @@ export const categoryFilterFor = (
         month: selectedMonth.month,
         category: "Other",
         uncategorized: true,
+        type: "debit",
       }
     : {
         year: selectedMonth.year,
         month: selectedMonth.month,
         category: name,
+        type: "debit",
       };

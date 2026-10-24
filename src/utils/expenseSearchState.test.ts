@@ -209,6 +209,51 @@ describe("filtersFromReport", () => {
     expect(filters.minAmount).toBe("");
     expect(filters.maxAmount).toBe("");
   });
+
+  it("keeps the report's money-out type so the list matches its numbers", () => {
+    const { filters } = filtersFromReport(
+      { year: 2026, month: 9, category: "Food", type: "debit" },
+      LEDGERS,
+    );
+    expect(filters).toEqual({
+      ...EMPTY_EXPENSE_FILTERS,
+      categories: ["Food"],
+      uncategorized: false,
+      type: "debit",
+      scope: "month",
+    });
+  });
+
+  it('limits "Other" to debits, so uncategorized credits stay out', () => {
+    const { filters } = filtersFromReport(
+      { year: 2026, month: 10, category: "Other", uncategorized: true, type: "debit" },
+      LEDGERS,
+    );
+    expect(filters.categories).toEqual(["Other"]);
+    expect(filters.uncategorized).toBe(true);
+    expect(filters.type).toBe("debit");
+  });
+
+  it("passes a credit type through", () => {
+    const { filters } = filtersFromReport(
+      { year: 2026, month: 10, category: "Salary", type: "credit" },
+      LEDGERS,
+    );
+    expect(filters.type).toBe("credit");
+  });
+
+  it('defaults the type to "all" when the param has none', () => {
+    const { filters } = filtersFromReport({ year: 2026, month: 10, category: "Food" }, LEDGERS);
+    expect(filters.type).toBe("all");
+  });
+
+  it('treats an unknown type value as "all"', () => {
+    const { filters } = filtersFromReport(
+      { year: 2026, month: 10, category: "Food", type: "bogus" as unknown as "debit" },
+      LEDGERS,
+    );
+    expect(filters.type).toBe("all");
+  });
 });
 
 describe("ledgerMonthName", () => {

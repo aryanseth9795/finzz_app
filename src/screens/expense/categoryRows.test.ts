@@ -226,11 +226,12 @@ describe("transactionCountLabel", () => {
 describe("categoryFilterFor", () => {
   const month = { year: 2026, month: 10 };
 
-  it("filters by the category name for that month", () => {
+  it("filters by the category name for that month, money out only", () => {
     expect(categoryFilterFor("Food", month)).toEqual({
       year: 2026,
       month: 10,
       category: "Food",
+      type: "debit",
     });
   });
 
@@ -240,6 +241,7 @@ describe("categoryFilterFor", () => {
       month: 10,
       category: "Other",
       uncategorized: true,
+      type: "debit",
     });
   });
 
@@ -249,6 +251,7 @@ describe("categoryFilterFor", () => {
       month: 10,
       category: "Other",
       uncategorized: true,
+      type: "debit",
     });
   });
 
@@ -257,6 +260,13 @@ describe("categoryFilterFor", () => {
       year: 2026,
       month: 10,
       category: "Other bills",
+      type: "debit",
     });
+  });
+
+  it("always limits the list to debits, as the report counts only money out", () => {
+    for (const name of ["Food", "Other", "Salary", " other "]) {
+      expect(categoryFilterFor(name, month).type).toBe("debit");
+    }
   });
 });
