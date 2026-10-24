@@ -59,6 +59,14 @@ const DivergingBars: React.FC<DivergingBarsProps> = ({
   const scrollRef = useRef<ScrollView>(null);
   const scrollX = useRef(0);
 
+  // New data (e.g. a refresh) closes the tooltip: the selected column may now
+  // hold a different month, or no longer exist.
+  const [activeData, setActiveData] = useState(data);
+  if (activeData !== data) {
+    setActiveData(data);
+    setActive(null);
+  }
+
   const rows = useMemo(
     () =>
       (data ?? []).map((d) => ({
@@ -88,10 +96,17 @@ const DivergingBars: React.FC<DivergingBarsProps> = ({
     [],
   );
 
-  // The selected month is the last column, so open scrolled to the end.
-  const scrollToEnd = useCallback(() => {
-    scrollRef.current?.scrollToEnd({ animated: false });
-  }, []);
+  // The selected month is the last column, so open scrolled to the end. A
+  // non-animated scrollToEnd may emit no scroll event, so record the offset it
+  // lands on here; otherwise a tap before any scroll would place the tooltip
+  // as if the chart were still at offset 0.
+  const scrollToEnd = useCallback(
+    (contentW: number) => {
+      scrollRef.current?.scrollToEnd({ animated: false });
+      scrollX.current = Math.max(0, contentW - width);
+    },
+    [width],
+  );
 
   if (!hasData) {
     return (
@@ -196,8 +211,15 @@ const DivergingBars: React.FC<DivergingBarsProps> = ({
         })}
       </Svg>
 
+      {/* The chart summary lives on the label row: it is read first, before
+          the column buttons, and folds the bare month texts into one element.
+          It is a sibling of the tap targets (not their parent), so screen
+          readers still reach every column, and pointerEvents="none" keeps
+          touches going to the columns. */}
       <View
         pointerEvents="none"
+        accessible
+        accessibilityLabel={summary}
         style={[
           styles.labels,
           { top: TOP_PAD + plotH + DOT_ROW, height: labelRow },
@@ -302,12 +324,9 @@ const DivergingBars: React.FC<DivergingBarsProps> = ({
   );
 
   return (
-    <View
-      onLayout={onLayout}
-      style={styles.root}
-      accessible={false}
-      accessibilityLabel={summary}
-    >
+    // Not accessible itself, so the per-column buttons stay reachable; the
+    // summary is on the label row instead.
+    <View onLayout={onLayout} style={styles.root} accessible={false}>
       {width > 0 &&
         (scroll ? (
           <ScrollView

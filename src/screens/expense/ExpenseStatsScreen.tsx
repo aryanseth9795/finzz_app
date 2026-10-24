@@ -30,7 +30,14 @@ import { IAdvancedExpenseStats, IAvailableMonth } from "../../types";
 import { logger } from "../../utils/logger";
 import { describeError } from "../../api/axios";
 import { buildExpenseInsights } from "../../utils/expenseInsights";
-import { YearMonth, isSameMonth, monthKey } from "../../utils/months";
+import {
+  YearMonth,
+  currentYearMonth,
+  isSameMonth,
+  mergeWindowCounts,
+  monthKey,
+  monthsEndingAt,
+} from "../../utils/months";
 import MonthSelector from "../../components/chat/MonthSelector";
 import {
   BigTicketsSection,
@@ -48,6 +55,9 @@ import {
 } from "./expenseStatsSections";
 
 const MONTHS_BACK = 18;
+// getAdvancedStats' monthlyTrend covers the requested month and the 12 before
+// it, listing only months that have rows.
+const TREND_WINDOW = 13;
 
 /** monthKey -> debitCount + creditCount, from a report's monthlyTrend. */
 const trendTxCounts = (
@@ -84,21 +94,20 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
   });
 
   // Transaction counts per month seen in any loaded report's monthlyTrend, kept
-  // across month changes so the selector's year grid stays usable while the
-  // next month loads. No extra requests.
+  // across month changes so the selector's caption and badges stay filled in
+  // while the next month loads. No extra requests. Counts are partial (months
+  // outside every loaded window are unknown), so they never disable a month.
   const [trendCounts, setTrendCounts] = useState<Record<string, number>>({});
 
   // The last MONTHS_BACK months up to (and including) the current one.
-  const selectorMonths = useMemo<IAvailableMonth[]>(() => {
-    const months: IAvailableMonth[] = [];
-    const current = new Date();
-    for (let i = 0; i < MONTHS_BACK; i++) {
-      const d = new Date(current.getFullYear(), current.getMonth() - i, 1);
-      const ym = { year: d.getFullYear(), month: d.getMonth() + 1 };
-      months.push({ ...ym, txCount: trendCounts[monthKey(ym)] ?? 0 });
-    }
-    return months;
-  }, [trendCounts]);
+  const selectorMonths = useMemo<IAvailableMonth[]>(
+    () =>
+      monthsEndingAt(currentYearMonth(new Date()), MONTHS_BACK).map((ym) => ({
+        ...ym,
+        txCount: trendCounts[monthKey(ym)] ?? 0,
+      })),
+    [trendCounts],
+  );
 
   const handleMonthChange = useCallback((ym: YearMonth) => {
     setSelectedDate((prev) =>
@@ -125,10 +134,16 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
         if (response.data.success) {
           const data = response.data.data;
           setStats(data);
-          setTrendCounts((prev) => ({
-            ...prev,
-            ...trendTxCounts(data?.monthlyTrend),
-          }));
+          // Reset the reply's whole window first: a month whose rows were all
+          // deleted is simply missing from monthlyTrend.
+          setTrendCounts((prev) =>
+            mergeWindowCounts(
+              prev,
+              selectedDate,
+              TREND_WINDOW,
+              trendTxCounts(data?.monthlyTrend),
+            ),
+          );
         } else {
           setError("Could not load analytics for this month.");
         }
@@ -311,6 +326,7 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
           selected={selectedDate}
           onChange={handleMonthChange}
           loading={loading}
+          enableAllMonths
         />
       </View>
 
