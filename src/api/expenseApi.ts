@@ -15,6 +15,21 @@ export const getExpensesApi = (
   limit?: number,
 ) => api.get("/expenses", { params: { ledgerId, cursor, limit } });
 
+/**
+ * Search and filter the expense list (`toSearchParams` builds `params`; no
+ * `ledgerId` means every month). Categories go as repeated keys,
+ * `category=Food&category=Gym`, which is what the server reads; axios's
+ * default `category[]=` would not match.
+ */
+export const searchExpensesApi = (
+  params: Record<string, string | number | boolean | string[]>,
+  cursor?: string,
+) =>
+  api.get("/expenses", {
+    params: { ...params, cursor, limit: 20 },
+    paramsSerializer: { indexes: null },
+  });
+
 export const editExpenseApi = (id: string, data: object) =>
   api.put(`/expenses/${id}`, data);
 
