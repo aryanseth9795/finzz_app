@@ -880,7 +880,17 @@ export const CategoriesSection = React.memo(function CategoriesSection({
     [stats.categoryBreakdown],
   );
   // Slice i is row i up to othersStart; the "Others" slice covers the rest.
-  const { slices, othersStart } = useMemo(() => donutSlices(rows), [rows]);
+  // "Others (1)" says less than the category's own name and is no bigger,
+  // so fold only when two or more categories would go into it.
+  const { slices, othersStart } = useMemo(() => {
+    const folded = donutSlices(rows);
+    if (folded.othersStart !== null && rows.length - folded.othersStart === 1) {
+      return donutSlices(rows, rows.length, 0);
+    }
+    return folded;
+  }, [rows]);
+  const othersCount = othersStart !== null ? rows.length - othersStart : 0;
+  const othersSelected = othersStart !== null && selected === othersStart;
 
   // The data (and so the donut) can change under a held selection.
   useEffect(() => setSelected(null), [rows]);
@@ -908,11 +918,9 @@ export const CategoriesSection = React.memo(function CategoriesSection({
 
   const toggleExpanded = useCallback(() => {
     // Collapsing hides the rows the "Others" slice points at.
-    if (expanded && selected !== null && selected === othersStart) {
-      setSelected(null);
-    }
+    if (expanded && othersSelected) setSelected(null);
     setExpanded(!expanded);
-  }, [expanded, selected, othersStart]);
+  }, [expanded, othersSelected]);
 
   const openCategory = useCallback(
     (name: string) => {
@@ -953,6 +961,22 @@ export const CategoriesSection = React.memo(function CategoriesSection({
               selectedIndex={selected}
               onSelect={onSelectSlice}
             />
+            {othersSelected ? (
+              // The folded rows can sit below the fold: say where they are.
+              <Text
+                accessibilityLiveRegion="polite"
+                style={{
+                  color: colors.textSecondary,
+                  fontSize: fontSize.sm,
+                  marginTop: spacing.sm,
+                  textAlign: "center",
+                }}
+              >
+                {`Others: ${othersCount} ${
+                  othersCount === 1 ? "category" : "categories"
+                }, highlighted below`}
+              </Text>
+            ) : null}
           </View>
 
           {concentration !== null ? (
@@ -973,12 +997,12 @@ export const CategoriesSection = React.memo(function CategoriesSection({
 
           <View style={{ gap: spacing.xs }}>
             {rows.slice(0, shown).map((r, i) => {
-              const color = palette[i % palette.length];
+              // Same colour as the row's slice: folded rows share the
+              // "Others" grey, so no palette colour points at a missing slice.
               const folded = othersStart !== null && i >= othersStart;
+              const color = folded ? othersColor : palette[i % palette.length];
               const tint = isRowHighlighted(i, selected, othersStart)
-                ? folded
-                  ? withAlpha(othersColor, 0.12)
-                  : withAlpha(color, 0.14)
+                ? withAlpha(color, folded ? 0.12 : 0.14)
                 : null;
               const countLabel =
                 r.count > 0 ? transactionCountLabel(r.count) : null;
@@ -1045,6 +1069,8 @@ export const CategoriesSection = React.memo(function CategoriesSection({
                     <View style={styles.catNumbers}>
                       <Text
                         numberOfLines={1}
+                        adjustsFontSizeToFit
+                        maxFontSizeMultiplier={1.3}
                         style={{
                           color: colors.text,
                           fontSize: fontSize.sm,
@@ -1055,6 +1081,7 @@ export const CategoriesSection = React.memo(function CategoriesSection({
                       </Text>
                       <Text
                         numberOfLines={1}
+                        maxFontSizeMultiplier={1.3}
                         style={{
                           color: colors.textSecondary,
                           fontSize: fontSize.xs,
@@ -1636,9 +1663,11 @@ const styles = StyleSheet.create({
   },
   barTrack: { height: 6, borderRadius: 3, overflow: "hidden" },
   barFill: { height: 6, borderRadius: 3 },
-  // Where it went: the name column gives way, the numbers never shrink.
-  catName: { flex: 1, minWidth: 0 },
-  catNumbers: { flexShrink: 0, alignItems: "flex-end" },
+  // Where it went: the name column keeps at least 40% of the row (large
+  // font scales on narrow phones); past that the numbers give way, and the
+  // amount shrinks its font to fit rather than cut digits.
+  catName: { flex: 1, minWidth: "40%" },
+  catNumbers: { flexShrink: 1, alignItems: "flex-end" },
   showMore: {
     flexDirection: "row",
     alignItems: "center",
