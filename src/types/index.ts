@@ -435,6 +435,11 @@ export interface ExpenseSearchSummary {
 export interface ExpenseFilterChip {
   key: string;
   label: string;
+  /**
+   * False for an informational chip with no remove action (the month a
+   * month-scoped search covers). Defaults to true.
+   */
+  removable?: boolean;
 }
 
 /**
@@ -447,5 +452,10 @@ export interface ExpenseHomeParams {
     month: number;
     category?: string;
     uncategorized?: boolean;
+    /**
+     * The report's categories are built from money out only, so a tap there
+     * passes "debit" and the list matches the report's numbers.
+     */
+    type?: "debit" | "credit";
   };
 }
