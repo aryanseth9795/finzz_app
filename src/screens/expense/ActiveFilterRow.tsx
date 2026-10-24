@@ -10,6 +10,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { formatNumber } from "../../utils/money";
+import { readableOn } from "../../utils/chartPalette";
+import { totalsLabel } from "../../utils/expenseFilters";
 import type { ExpenseFilterChip, ExpenseSearchSummary } from "../../types";
 
 interface ActiveFilterRowProps {
@@ -21,9 +23,11 @@ interface ActiveFilterRowProps {
 }
 
 /**
- * The active filters as removable chips, then one line with the number of
- * matches and their totals. The totals cover everything that matches, not
- * just the rows loaded so far.
+ * The active filters as chips, then one line with the number of matches and
+ * their totals. A chip with `removable: false` (the month a month-scoped
+ * search covers) only informs: no ✕ and not a button. "Clear all" still
+ * clears everything. The totals cover everything that matches, not just the
+ * rows loaded so far.
  */
 export default function ActiveFilterRow({
   chips,
@@ -38,14 +42,16 @@ export default function ActiveFilterRow({
   const showSummary = summary !== null || loading;
   if (chips.length === 0 && !showSummary) return null;
 
+  // Brand text that reaches 4.5:1: `primary` is ~4.0:1 on the chip fill in
+  // light and ~3.6:1 in dark, so take the stronger indigo for each theme
+  // (primaryDark in light, primaryLight in dark).
+  const brandInks = [colors.primaryDark, colors.primaryLight];
+  const chipInk = readableOn(colors.primarySurface, brandInks);
+  const clearAllInk = readableOn(colors.background, brandInks);
+
   const debit = summary?.debitTotal ?? 0;
   const credit = summary?.creditTotal ?? 0;
-  const totalsLabel = [
-    debit > 0 ? `Money out ₹${formatNumber(debit)}` : "",
-    credit > 0 ? `money in ₹${formatNumber(credit)}` : "",
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const totalsA11yLabel = totalsLabel(debit, credit);
 
   return (
     <View style={styles.container}>
@@ -58,30 +64,48 @@ export default function ActiveFilterRow({
             contentContainerStyle={styles.chipContent}
             keyboardShouldPersistTaps="handled"
           >
-            {chips.map((chip) => (
-              <TouchableOpacity
-                key={chip.key}
-                style={[
-                  styles.chip,
-                  {
-                    backgroundColor: colors.primarySurface,
-                    borderColor: colors.primary,
-                  },
-                ]}
-                onPress={() => onRemove(chip.key)}
-                activeOpacity={0.7}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove ${chip.label} filter`}
-              >
+            {chips.map((chip) => {
+              const chipColors = {
+                backgroundColor: colors.primarySurface,
+                borderColor: colors.primary,
+              };
+              const label = (
                 <Text
-                  style={[styles.chipText, { color: colors.primary }]}
+                  style={[styles.chipText, { color: chipInk }]}
                   numberOfLines={1}
                 >
                   {chip.label}
                 </Text>
-                <Ionicons name="close" size={14} color={colors.primary} />
-              </TouchableOpacity>
-            ))}
+              );
+
+              if (chip.removable === false) {
+                return (
+                  <View
+                    key={chip.key}
+                    style={[styles.chip, styles.chipInfo, chipColors]}
+                    accessible
+                    accessibilityRole="text"
+                    accessibilityLabel={`Showing ${chip.label}`}
+                  >
+                    {label}
+                  </View>
+                );
+              }
+
+              return (
+                <TouchableOpacity
+                  key={chip.key}
+                  style={[styles.chip, chipColors]}
+                  onPress={() => onRemove(chip.key)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${chip.label} filter`}
+                >
+                  {label}
+                  <Ionicons name="close" size={14} color={chipInk} />
+                </TouchableOpacity>
+              );
+            })}
           </ScrollView>
           <TouchableOpacity
             style={styles.clearAll}
@@ -91,7 +115,7 @@ export default function ActiveFilterRow({
             accessibilityLabel="Clear all filters"
           >
             <Text
-              style={[styles.clearAllText, { color: colors.primary }]}
+              style={[styles.clearAllText, { color: clearAllInk }]}
               numberOfLines={1}
             >
               Clear all
@@ -119,7 +143,7 @@ export default function ActiveFilterRow({
               numberOfLines={1}
               adjustsFontSizeToFit
               minimumFontScale={0.75}
-              accessibilityLabel={totalsLabel}
+              accessibilityLabel={totalsA11yLabel}
             >
               {debit > 0 ? `−₹${formatNumber(debit)}` : ""}
               {debit > 0 && credit > 0 ? "  " : ""}
@@ -157,6 +181,8 @@ const styles = StyleSheet.create({
     paddingRight: 8,
     paddingVertical: 5,
   },
+  // No ✕ on an informational chip, so even padding on both sides.
+  chipInfo: { paddingRight: 12 },
   // A long search text ellipsizes instead of filling the row.
   chipText: { maxWidth: 180, fontSize: 13, fontWeight: "500" },
   clearAll: { flexShrink: 0, paddingLeft: 8, paddingRight: 16 },

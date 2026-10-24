@@ -10,6 +10,7 @@ import {
   removeChip,
   toggleCategory,
   toSearchParams,
+  totalsLabel,
 } from "./expenseFilters";
 
 const f = (over: Partial<ExpenseFilters> = {}): ExpenseFilters => ({
@@ -232,18 +233,29 @@ describe("activeChips", () => {
     expect(chips.map((c) => c.key)).toEqual(["scope"]);
   });
 
-  it("shows the month when filtering within this month", () => {
-    expect(activeChips(f({ q: "pizza" }), month)).toEqual([{ key: "scope", label: "Oct 2026" }]);
+  it("shows the month, not removable, when filtering within this month", () => {
+    expect(activeChips(f({ q: "pizza" }), month)).toEqual([
+      { key: "scope", label: "Oct 2026", removable: false },
+    ]);
     expect(activeChips(f({ type: "debit" }), month)).toEqual([
-      { key: "scope", label: "Oct 2026" },
+      { key: "scope", label: "Oct 2026", removable: false },
       { key: "type", label: "Money out" },
     ]);
   });
 
-  it("shows All months for the all scope", () => {
-    expect(activeChips(f({ scope: "all" }), month)).toEqual([
-      { key: "scope", label: "All months" },
-    ]);
+  it("shows All months for the all scope, removable", () => {
+    const chips = activeChips(f({ scope: "all" }), month);
+    expect(chips).toEqual([{ key: "scope", label: "All months" }]);
+    expect(chips[0].removable).not.toBe(false);
+  });
+
+  it("leaves every chip but the month removable", () => {
+    const chips = activeChips(
+      f({ type: "debit", categories: ["Food"], uncategorized: true, minAmount: "100" }),
+      month
+    );
+    expect(chips.filter((c) => c.removable === false).map((c) => c.key)).toEqual(["scope"]);
+    expect(chips.slice(1).every((c) => c.removable !== false)).toBe(true);
   });
 
   it("labels the types", () => {
@@ -359,6 +371,37 @@ describe("removeChip", () => {
       current = removeChip(current, chip.key);
     }
     expect(current).toEqual({ ...EMPTY_EXPENSE_FILTERS, q: "cab" });
+  });
+
+  it("removing every removable chip of a month search leaves only the search text", () => {
+    const monthSearch = { ...full, scope: "month" as const };
+    let current: ExpenseFilters = monthSearch;
+    for (const chip of activeChips(monthSearch, "Oct 2026")) {
+      if (chip.removable === false) continue;
+      current = removeChip(current, chip.key);
+    }
+    expect(current).toEqual({ ...EMPTY_EXPENSE_FILTERS, q: "cab" });
+    expect(activeChips(current, "Oct 2026")).toEqual([
+      { key: "scope", label: "Oct 2026", removable: false },
+    ]);
+  });
+});
+
+describe("totalsLabel", () => {
+  it("is empty with no totals", () => {
+    expect(totalsLabel(0, 0)).toBe("");
+  });
+
+  it("starts with a capital for money out only", () => {
+    expect(totalsLabel(1200, 0)).toBe("Money out ₹1,200");
+  });
+
+  it("starts with a capital for money in only", () => {
+    expect(totalsLabel(0, 500)).toBe("Money in ₹500");
+  });
+
+  it("uses sentence case for both", () => {
+    expect(totalsLabel(1200, 500)).toBe("Money out ₹1,200, money in ₹500");
   });
 });
 

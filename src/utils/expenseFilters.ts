@@ -124,7 +124,9 @@ const amountLabel = (min: number | undefined, max: number | undefined): string |
  * Chips for the active-filter row, in order: scope, type, categories,
  * "No category", amount. The search text never gets a chip. The month chip
  * (`monthName`, e.g. "Oct 2026") shows only while something else is being
- * searched or filtered, so the plain month list has no chips.
+ * searched or filtered, so the plain month list has no chips. It only says
+ * what the search covers: "month" is already the narrowest scope, so it is
+ * `removable: false`. "All months" stays removable (back to this month).
  */
 export const activeChips = (f: ExpenseFilters, monthName: string): ExpenseFilterChip[] => {
   const chips: ExpenseFilterChip[] = [];
@@ -132,7 +134,7 @@ export const activeChips = (f: ExpenseFilters, monthName: string): ExpenseFilter
   if (f.scope === "all") {
     chips.push({ key: "scope", label: "All months" });
   } else if (isFiltering(f)) {
-    chips.push({ key: "scope", label: monthName });
+    chips.push({ key: "scope", label: monthName, removable: false });
   }
 
   if (f.type !== "all") chips.push({ key: "type", label: TYPE_LABELS[f.type] });
@@ -147,6 +149,18 @@ export const activeChips = (f: ExpenseFilters, monthName: string): ExpenseFilter
   if (amount) chips.push({ key: "amount", label: amount });
 
   return chips;
+};
+
+/**
+ * The spoken form of the search totals, in sentence case: "Money out ₹1,200,
+ * money in ₹500", "Money in ₹500", or "" when both are zero.
+ */
+export const totalsLabel = (debitTotal: number, creditTotal: number): string => {
+  const parts: string[] = [];
+  if (debitTotal > 0) parts.push(`money out ₹${formatNumber(debitTotal)}`);
+  if (creditTotal > 0) parts.push(`money in ₹${formatNumber(creditTotal)}`);
+  const text = parts.join(", ");
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
 };
 
 /** Filters without the one a chip stands for. An unknown key returns `f` unchanged. */

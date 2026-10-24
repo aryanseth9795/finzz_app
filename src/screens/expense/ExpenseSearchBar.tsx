@@ -5,6 +5,8 @@ import { useTheme } from "../../contexts/ThemeContext";
 
 // The server takes search text of at most 50 characters.
 const MAX_QUERY_LENGTH = 50;
+// A one-line field: past 1.6x the text would crowd out the icons and "Cancel".
+const MAX_FONT_SCALE = 1.6;
 
 interface ExpenseSearchBarProps {
   value: string;
@@ -49,6 +51,7 @@ export default function ExpenseSearchBar({
           autoFocus={autoFocus}
           autoCorrect={false}
           autoCapitalize="none"
+          maxFontSizeMultiplier={MAX_FONT_SCALE}
           accessibilityLabel="Search expenses"
         />
         {value.length > 0 && (
@@ -93,6 +96,7 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
   },
   // minWidth 0 lets the field give way to "Cancel" on narrow screens.
+  // minHeight, not height: the box grows with large text instead of clipping it.
   box: {
     flex: 1,
     minWidth: 0,
@@ -100,10 +104,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     paddingHorizontal: 12,
-    height: 40,
+    paddingVertical: 4,
+    minHeight: 40,
     borderRadius: 12,
     borderWidth: 1,
   },
-  input: { flex: 1, minWidth: 0, fontSize: 15, paddingVertical: 0 },
+  input: { flex: 1, minWidth: 0, fontSize: 15, paddingVertical: 4 },
   cancelText: { fontSize: 15, fontWeight: "600" },
 });
