@@ -5,6 +5,7 @@ import chatReducer from "./slices/chatSlice";
 import friendReducer from "./slices/friendSlice";
 import poolReducer from "./slices/poolSlice";
 import expenseReducer from "./slices/expenseSlice";
+import notesReducer from "./slices/notesSlice";
 
 const appReducer = combineReducers({
   auth: authReducer,
@@ -12,6 +13,7 @@ const appReducer = combineReducers({
   friend: friendReducer,
   pool: poolReducer,
   expense: expenseReducer,
+  notes: notesReducer,
 });
 
 export type RootState = ReturnType<typeof appReducer>;

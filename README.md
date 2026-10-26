@@ -64,3 +64,20 @@ Always stay in the loop without having to open the app.
 ---
 
 *Finzz represents a new era of money management—one built entirely around collaboration, verifiable trust, and beautiful analytics.*
+
+## Releasing a major (native) build — forced update
+
+The app blocks any install whose native version is below the minimum set in
+the admin panel (App Release page). The installed version is
+`Updates.runtimeVersion`, which equals `expo.version` in `app.json`.
+
+1. **One time:** ship the gate itself to existing installs:
+   `eas update --channel production --message "forced update gate"`.
+2. Bump `expo.version` in `app.json` (e.g. `1.0.0` → `1.1.0`). Required for every native build.
+3. `eas build -p android --profile production`.
+4. Upload the APK somewhere with a permanent direct https link (e.g. a GitHub Release asset).
+5. Admin panel → App Release → set **Latest** and **Minimum** to the new version, paste the
+   APK URL, add notes, Save. Older installs are blocked on next launch/resume.
+6. For an optional update, raise only **Latest**.
+
+To test the gate in a dev build, start Expo with `EXPO_PUBLIC_FORCE_UPDATE_DEV=1`.

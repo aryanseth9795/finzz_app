@@ -57,6 +57,8 @@ export interface ITx {
   rejectedBy?: string | { _id: string; name: string };
   rejectedAt?: string;
   rejectionRemark?: string;
+  editedAt?: string;
+  editCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -135,11 +137,16 @@ export interface INotification {
     | "txn_rejected"
     | "txn_reworked"
     | "txn_deleted"
+    | "txn_edited"
     | "pool_tx_added"
     | "pool_tx_verified"
     | "pool_member_added"
-    | "pool_member_removed";
-  sender: IUser;
+    | "pool_member_removed"
+    | "note_shared"
+    | "admin_broadcast"
+    | "admin_targeted";
+  /** Absent on admin broadcasts and targeted sends. */
+  sender?: IUser;
   title?: string;
   body?: string;
   data?: Record<string, unknown>;
@@ -305,5 +312,63 @@ export interface IAdvancedExpenseStats {
     date: string;
     remarks: string;
     category: string;
+    /** Present on newer servers. */
+    type?: "debit" | "credit";
   }>;
+  /** Present on newer servers: 3 monthly points for each of the top categories. */
+  categoryTrend?: Array<{
+    name: string;
+    months: Array<{ month: string; total: number }>;
+  }>;
+}
+
+// ========================
+// Note Types
+// ========================
+// Mirror the server's NoteDto (server/src/utils/noteDto.ts). Owner-only fields
+// (`personLabel`, `sharedWith`) are absent for recipients; `sharedAt` is
+// present only for recipients.
+export type NoteRole = "owner" | "editor" | "viewer";
+export type NotePermission = "view" | "edit";
+export type NoteScope = "all" | "mine" | "shared";
+
+export interface INotePerson {
+  _id: string;
+  name: string;
+  avatar?: string;
+}
+
+export interface INote {
+  _id: string;
+  title: string;
+  body: string;
+  /** Set by the list endpoint when `body` is a 300-character preview. */
+  bodyTruncated?: boolean;
+  version: number;
+  createdAt: string;
+  editedAt: string;
+  role: NoteRole;
+  owner: INotePerson;
+  lastEditedBy: { _id: string; name: string } | null;
+  personLabel?: INotePerson | null;
+  sharedWith?: number;
+  sharedAt?: string;
+}
+
+export interface INoteShare {
+  user: INotePerson;
+  permission: NotePermission;
+  sharedAt: string;
+  updatedAt: string;
+}
+
+export interface INoteLabel {
+  user: INotePerson;
+  count: number;
+}
+
+export interface INotesPage {
+  notes: INote[];
+  nextCursor: string | null;
+  hasMore: boolean;
 }
