@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { IExpense, IExpenseLedger, IExpenseStats } from "../../types";
+import { insertByDate } from "../../utils/expenseList";
 
 interface ExpenseState {
   expenses: IExpense[];
@@ -65,8 +66,10 @@ const expenseSlice = createSlice({
       if (state.activeLedger && expense.ledgerId !== state.activeLedger._id) {
         return;
       }
-      if (state.expenses.some((e) => e._id === expense._id)) return;
-      state.expenses = [expense, ...state.expenses];
+      // In its date's place, not on top: back-dated rows are normal, and on
+      // top one would draw a second header for its day. Also drops a row
+      // already listed with the same _id.
+      state.expenses = insertByDate(state.expenses, expense, state.hasMore);
     },
     updateExpense: (
       state,
@@ -82,7 +85,14 @@ const expenseSlice = createSlice({
         state.expenses.splice(index, 1);
         return;
       }
-      state.expenses[index] = expense;
+      // Re-placed by date, so a new date within the month re-sorts the row.
+      // insertByDate drops the old row by _id itself; a different oldId (a
+      // temp row) is dropped here.
+      const rest =
+        searchId === expense._id
+          ? state.expenses
+          : state.expenses.filter((e) => e._id !== searchId);
+      state.expenses = insertByDate(rest, expense, state.hasMore);
     },
     removeExpense: (state, action: PayloadAction<string>) => {
       state.expenses = state.expenses.filter((e) => e._id !== action.payload);

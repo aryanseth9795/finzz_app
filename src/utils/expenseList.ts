@@ -52,6 +52,42 @@ export const startsNewDay = (
 ): boolean =>
   index === 0 || dayKeyOf(expenses[index]) !== dayKeyOf(expenses[index - 1]);
 
+/**
+ * True when `a` comes before `b` in the server's order: date, then _id, both
+ * newest first. ObjectId hex strings have a fixed length, so a string compare
+ * orders them.
+ */
+const sortsBefore = (
+  a: Pick<IExpense, "_id" | "date">,
+  b: Pick<IExpense, "_id" | "date">,
+): boolean => {
+  const aTime = Date.parse(a.date);
+  const bTime = Date.parse(b.date);
+  if (aTime !== bTime) return aTime > bTime;
+  return a._id > b._id;
+};
+
+/**
+ * `list` with `expense` in its date's place (any row with the same _id is
+ * dropped first), so a back-dated row joins its day instead of landing on top.
+ * The loaded rows end at the last row of `list`, whose key the paging cursor
+ * holds even when that row is the one being edited. A row that sorts after it
+ * belongs to a page not loaded yet: while `hasMore`, it is left out for
+ * pagination to bring, as appending it would break the cursor order.
+ */
+export const insertByDate = (
+  list: IExpense[],
+  expense: IExpense,
+  hasMore: boolean,
+): IExpense[] => {
+  const rest = list.filter((e) => e._id !== expense._id);
+  const last = list[list.length - 1];
+  if (hasMore && last && sortsBefore(last, expense)) return rest;
+  const slot = rest.findIndex((e) => sortsBefore(expense, e));
+  if (slot === -1) return [...rest, expense];
+  return [...rest.slice(0, slot), expense, ...rest.slice(slot)];
+};
+
 /** The row's category for display, or null for blank and the old "-". */
 export const displayCategory = (category: unknown): string | null =>
   isStorableCategory(category) ? normalizeCategoryName(category) : null;

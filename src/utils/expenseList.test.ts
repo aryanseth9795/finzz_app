@@ -8,7 +8,9 @@ import {
   rowText,
   categoryColorIndex,
   categoryInitial,
+  insertByDate,
 } from "./expenseList";
+import type { IExpense } from "../types";
 
 // Expenses are stored at UTC midnight of their calendar day.
 const at = (day: string) => `${day}T00:00:00.000Z`;
@@ -186,5 +188,88 @@ describe("categoryInitial", () => {
   it("is the first character, uppercased", () => {
     expect(categoryInitial("  food")).toBe("F");
     expect(categoryInitial("emi")).toBe("E");
+  });
+});
+
+describe("insertByDate", () => {
+  // The server lists rows by date (newest first), then by _id (newest first).
+  const row = (id: string, day: string, extra: Partial<IExpense> = {}): IExpense => ({
+    _id: id,
+    userId: "u1",
+    ledgerId: "oct",
+    amount: 100,
+    type: "debit",
+    date: at(day),
+    createdAt: at(day),
+    updatedAt: at(day),
+    ...extra,
+  });
+
+  const ids = (list: IExpense[]) => list.map((e) => e._id);
+
+  // 31 / 20 / 12 Oct, as the server sends them.
+  const october = [
+    row("a31", "2026-10-31"),
+    row("a20", "2026-10-20"),
+    row("a12", "2026-10-12"),
+  ];
+
+  it("goes first when it is the newest", () => {
+    const next = insertByDate(october, row("b", "2026-11-01"), true);
+    expect(ids(next)).toEqual(["b", "a31", "a20", "a12"]);
+  });
+
+  it("goes in the middle by date", () => {
+    const next = insertByDate(october, row("b", "2026-10-15"), true);
+    expect(ids(next)).toEqual(["a31", "a20", "b", "a12"]);
+  });
+
+  it("orders rows on the same date by _id, newest first", () => {
+    const newer = insertByDate(october, row("b12", "2026-10-12"), true);
+    expect(ids(newer)).toEqual(["a31", "a20", "b12", "a12"]);
+    const older = insertByDate(october, row("a00", "2026-10-20"), true);
+    expect(ids(older)).toEqual(["a31", "a20", "a00", "a12"]);
+  });
+
+  it("goes last when every row is loaded", () => {
+    const next = insertByDate(october, row("b", "2026-10-01"), false);
+    expect(ids(next)).toEqual(["a31", "a20", "a12", "b"]);
+  });
+
+  it("is left out when it would be last and more pages are to come", () => {
+    const next = insertByDate(october, row("b", "2026-10-01"), true);
+    expect(ids(next)).toEqual(["a31", "a20", "a12"]);
+  });
+
+  it("replaces the row with the same _id, moving it to its new place", () => {
+    const edited = row("a31", "2026-10-15", { amount: 7 });
+    const next = insertByDate(october, edited, true);
+    expect(ids(next)).toEqual(["a20", "a31", "a12"]);
+    expect(next[1]).toBe(edited);
+  });
+
+  it("keeps the last row when it is edited without moving, though more pages are to come", () => {
+    const edited = row("a12", "2026-10-12", { amount: 7 });
+    const next = insertByDate(october, edited, true);
+    expect(ids(next)).toEqual(["a31", "a20", "a12"]);
+    expect(next[2]).toBe(edited);
+  });
+
+  it("drops the last row when its new date moves it past the loaded rows", () => {
+    // The paging cursor still holds its old date, so the next page brings it.
+    const next = insertByDate(october, row("a12", "2026-10-02"), true);
+    expect(ids(next)).toEqual(["a31", "a20"]);
+  });
+
+  it("puts the row in an empty list", () => {
+    expect(ids(insertByDate([], row("b", "2026-10-12"), true))).toEqual(["b"]);
+    expect(ids(insertByDate([], row("b", "2026-10-12"), false))).toEqual(["b"]);
+  });
+
+  it("returns a new array and leaves the input alone", () => {
+    const list = [...october];
+    const next = insertByDate(list, row("b", "2026-10-15"), true);
+    expect(next).not.toBe(list);
+    expect(ids(list)).toEqual(["a31", "a20", "a12"]);
   });
 });

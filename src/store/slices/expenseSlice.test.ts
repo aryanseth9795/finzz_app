@@ -18,6 +18,13 @@ const ledger = (id: string, year: number, month: number): IExpenseLedger => ({
 });
 
 const NOV = ledger("nov", 2026, 11);
+const OCT = ledger("oct", 2026, 10);
+
+/** The fields that date an expense to `day` (stored at UTC midnight). */
+const on = (day: string): Partial<IExpense> => {
+  const date = `${day}T00:00:00.000Z`;
+  return { date, createdAt: date, updatedAt: date };
+};
 
 const expense = (
   id: string,
@@ -35,15 +42,29 @@ const expense = (
   ...extra,
 });
 
-/** The store with `active` on screen and `rows` already listed. */
-const stateWith = (active: IExpenseLedger | null, rows: IExpense[]) => {
+/**
+ * The store with `active` on screen and `rows` already listed. Rows go in the
+ * server's order: date, then _id, newest first.
+ */
+const stateWith = (
+  active: IExpenseLedger | null,
+  rows: IExpense[],
+  hasMore = true,
+) => {
   let state = reducer(undefined, { type: "@@init" });
   state = reducer(state, setActiveLedger(active));
   return reducer(
     state,
-    setExpenses({ expenses: rows, nextCursor: "cursor-1", hasMore: true }),
+    setExpenses({ expenses: rows, nextCursor: "cursor-1", hasMore }),
   );
 };
+
+/** 31 / 20 / 12 Oct, as the server sends them. */
+const octoberRows = () => [
+  expense("a31", "oct", on("2026-10-31")),
+  expense("a20", "oct", on("2026-10-20")),
+  expense("a12", "oct", on("2026-10-12")),
+];
 
 const ids = (state: ReturnType<typeof reducer>) =>
   state.expenses.map((e) => e._id);
@@ -82,16 +103,40 @@ describe("addExpense", () => {
       expect(next.activeLedger).toEqual(NOV);
     }
   });
+
+  it("puts a back-dated row in its date's place, not at the top", () => {
+    const state = stateWith(OCT, octoberRows());
+    const next = reducer(state, addExpense(expense("b15", "oct", on("2026-10-15"))));
+    expect(ids(next)).toEqual(["a31", "a20", "b15", "a12"]);
+  });
+
+  it("puts a row next to the others of its day, so the day keeps one header", () => {
+    const state = stateWith(OCT, octoberRows());
+    const next = reducer(state, addExpense(expense("b12", "oct", on("2026-10-12"))));
+    expect(ids(next)).toEqual(["a31", "a20", "b12", "a12"]);
+  });
+
+  it("does not list a row older than every loaded one while more pages are to come", () => {
+    const state = stateWith(OCT, octoberRows());
+    const next = reducer(state, addExpense(expense("b01", "oct", on("2026-10-01"))));
+    expect(ids(next)).toEqual(["a31", "a20", "a12"]);
+  });
+
+  it("lists a row older than every other one at the end once all pages are loaded", () => {
+    const state = stateWith(OCT, octoberRows(), false);
+    const next = reducer(state, addExpense(expense("b01", "oct", on("2026-10-01"))));
+    expect(ids(next)).toEqual(["a31", "a20", "a12", "b01"]);
+  });
 });
 
 describe("updateExpense", () => {
   it("swaps the row in place when it stays in the month on screen", () => {
     const state = stateWith(NOV, [
-      expense("a", "nov"),
-      expense("b", "nov"),
-      expense("c", "nov"),
+      expense("a", "nov", on("2026-11-03")),
+      expense("b", "nov", on("2026-11-02")),
+      expense("c", "nov", on("2026-11-01")),
     ]);
-    const edited = expense("b", "nov", { amount: 250 });
+    const edited = expense("b", "nov", { ...on("2026-11-02"), amount: 250 });
     const next = reducer(state, updateExpense({ expense: edited }));
     expect(ids(next)).toEqual(["a", "b", "c"]);
     expect(next.expenses[1].amount).toBe(250);
@@ -109,9 +154,9 @@ describe("updateExpense", () => {
 
   it("removes the row when the edit moved it to another month", () => {
     const state = stateWith(NOV, [
-      expense("a", "nov"),
-      expense("b", "nov"),
-      expense("c", "nov"),
+      expense("a", "nov", on("2026-11-03")),
+      expense("b", "nov", on("2026-11-02")),
+      expense("c", "nov", on("2026-11-01")),
     ]);
     const moved = expense("b", "oct", { date: "2026-10-31T00:00:00.000Z" });
     const next = reducer(state, updateExpense({ expense: moved }));
@@ -152,12 +197,46 @@ describe("updateExpense", () => {
   });
 
   it("keeps the paging state", () => {
-    const state = stateWith(NOV, [expense("a", "nov"), expense("b", "nov")]);
+    const state = stateWith(NOV, [expense("b", "nov"), expense("a", "nov")]);
     for (const row of [expense("a", "nov", { amount: 9 }), expense("b", "oct")]) {
       const next = reducer(state, updateExpense({ expense: row }));
       expect(next.nextCursor).toBe("cursor-1");
       expect(next.hasMore).toBe(true);
       expect(next.activeLedger).toEqual(NOV);
     }
+  });
+});
+
+describe("updateExpense: a new date in the same month", () => {
+  it("moves the row to its new date's place", () => {
+    const state = stateWith(OCT, octoberRows());
+    const older = reducer(
+      state,
+      updateExpense({ expense: expense("a31", "oct", on("2026-10-15")) }),
+    );
+    expect(ids(older)).toEqual(["a20", "a31", "a12"]);
+    const newer = reducer(
+      state,
+      updateExpense({ expense: expense("a12", "oct", on("2026-10-25")) }),
+    );
+    expect(ids(newer)).toEqual(["a31", "a12", "a20"]);
+  });
+
+  it("moves the row found by oldId to the saved row's date", () => {
+    const state = stateWith(OCT, [
+      expense("temp-1", "oct", on("2026-10-31")),
+      ...octoberRows(),
+    ]);
+    const saved = expense("real-1", "oct", on("2026-10-15"));
+    const next = reducer(state, updateExpense({ oldId: "temp-1", expense: saved }));
+    expect(ids(next)).toEqual(["a31", "a20", "real-1", "a12"]);
+  });
+
+  it("keeps the last loaded row when an edit leaves its date alone", () => {
+    const state = stateWith(OCT, octoberRows());
+    const edited = expense("a12", "oct", { ...on("2026-10-12"), amount: 7 });
+    const next = reducer(state, updateExpense({ expense: edited }));
+    expect(ids(next)).toEqual(["a31", "a20", "a12"]);
+    expect(next.expenses[2].amount).toBe(7);
   });
 });
