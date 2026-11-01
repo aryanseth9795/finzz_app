@@ -52,7 +52,11 @@ import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { describeError } from "../../api/axios";
 import { CACHE_DURATION } from "../../constants/api";
 import { logger } from "../../utils/logger";
-import { pickInitialLedger, readCachedPage } from "../../utils/expenseLedger";
+import {
+  pickInitialLedger,
+  readCachedPage,
+  shouldFollowCurrentMonth,
+} from "../../utils/expenseLedger";
 import { formatNumber } from "../../utils/money";
 import { withAlpha } from "../../utils/chartPalette";
 import {
@@ -134,6 +138,14 @@ const ExpenseScreen = ({ navigation, route }: any) => {
    * user) and after the report opened a past month.
    */
   const holdLedgerRef = useRef(false);
+  /**
+   * The real-world month at the last successful ledger load (null until the
+   * first one), so a load can tell a month rollover from a past month the
+   * user picked. See `shouldFollowCurrentMonth`.
+   */
+  const lastSeenTodayRef = useRef<{ year: number; month: number } | null>(
+    null,
+  );
   // Read by the focus callback, which is created once.
   const filteringRef = useRef(false);
   const reportFilterRef = useRef(reportFilter);
@@ -216,12 +228,16 @@ const ExpenseScreen = ({ navigation, route }: any) => {
         !isManualRefresh &&
         !holdLedgerRef.current &&
         currentActiveLedger &&
-        (currentActiveLedger.year < currentYear ||
-          (currentActiveLedger.year === currentYear &&
-            currentActiveLedger.month < currentMonth)) &&
+        shouldFollowCurrentMonth(
+          currentActiveLedger,
+          { year: currentYear, month: currentMonth },
+          lastSeenTodayRef.current,
+        ) &&
         currentRealWorldLedger
       ) {
-        // Active ledger is from a past month and we are booting/focusing. Auto-navigate to the new current month ledger.
+        // Month rollover only: the past month is stale (from the cache or an
+        // earlier session) or it was "this month" until it just ended. A past
+        // month the user picked stays, e.g. after adding to it and coming back.
         dispatch(setActiveLedger(currentRealWorldLedger));
       } else if (currentActiveLedger && ledgerList.length > 0) {
         // Preserve current selection: find the updated version of the active ledger
@@ -235,6 +251,7 @@ const ExpenseScreen = ({ navigation, route }: any) => {
         // First load: default to current month
         dispatch(setActiveLedger(pickInitialLedger(ledgerList, now)));
       }
+      lastSeenTodayRef.current = { year: currentYear, month: currentMonth };
     } catch (error) {
       logger.error("Failed to load ledgers:", error);
     } finally {
