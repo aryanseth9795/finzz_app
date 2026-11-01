@@ -34,11 +34,16 @@ import {
   closedLedgerFor,
   defaultExpenseDate,
 } from "../../utils/dates";
-import { monthLabel } from "../../utils/months";
+import {
+  monthLabel,
+  isSameMonth,
+  currentYearMonth,
+} from "../../utils/months";
 import {
   PaymentChoice,
   paymentChoiceOf,
   paymentPayload,
+  editPaymentPayload,
 } from "../../utils/paymentMode";
 import {
   normalizeCategoryName,
@@ -95,9 +100,12 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
   );
   const [remarks, setRemarks] = useState(expense?.remarks || "");
   const [category, setCategory] = useState(expense?.category || "");
-  const [payment, setPayment] = useState<PaymentChoice>(() =>
+  // What the chips showed when the form opened; an edit that leaves them
+  // alone sends no payment keys, so the server keeps what it has.
+  const [initialPayment] = useState<PaymentChoice>(() =>
     paymentChoiceOf(expense),
   );
+  const [payment, setPayment] = useState<PaymentChoice>(initialPayment);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cache, setCache] = useState<ExpenseCategoriesCache | null>(null);
@@ -296,12 +304,12 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
     const submit = async () => {
       setSaving(true);
       try {
-        // Payment: an add leaves unset fields out; an edit sends null so a
-        // cleared chip really clears on the server.
+        // Payment: an add leaves unset fields out; an edit sends both keys
+        // (null clears) only when the chips changed.
         const response = isEditing
           ? await editExpenseApi(expense._id, {
               ...expenseData,
-              ...paymentPayload(payment, true),
+              ...editPaymentPayload(initialPayment, payment),
             })
           : await addExpenseApi({
               ...expenseData,
@@ -341,13 +349,18 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         ]);
 
         // Name the month when it isn't the one the form came from, so an
-        // entry filed under another month doesn't look lost.
+        // entry filed under another month doesn't look lost. Without a ledger
+        // id (+ tapped before any ledger loaded) the form came from the month
+        // on screen, or this month.
         const savedDate = fromApiDate(saved.date);
-        const otherMonth = monthLabel(
-          { year: savedDate.getFullYear(), month: savedDate.getMonth() + 1 },
-          "short",
-        );
-        const movedMonth = !!fromLedgerId && saved.ledgerId !== fromLedgerId;
+        const savedMonth = {
+          year: savedDate.getFullYear(),
+          month: savedDate.getMonth() + 1,
+        };
+        const otherMonth = monthLabel(savedMonth, "short");
+        const movedMonth = fromLedgerId
+          ? saved.ledgerId !== fromLedgerId
+          : !isSameMonth(savedMonth, period ?? currentYearMonth(new Date()));
         const noun = txnType === "credit" ? "Credit" : "Expense";
         showSuccessToast(
           isEditing
