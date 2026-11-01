@@ -222,9 +222,15 @@ export interface IExpense {
   date: string;
   remarks?: string;
   category?: string;
+  // How it was paid; method only when the mode is online. Absent on old rows.
+  paymentMode?: PaymentMode;
+  paymentMethod?: PaymentMethod;
   createdAt: string;
   updatedAt: string;
 }
+
+export type PaymentMode = "cash" | "online";
+export type PaymentMethod = "upi" | "card" | "netbanking" | "wallet" | "other";
 
 export interface IExpenseLedger {
   _id: string;
