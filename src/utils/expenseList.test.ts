@@ -113,6 +113,59 @@ describe("rowText", () => {
       subtitle: null,
     });
   });
+
+  it("adds the payment method after the category", () => {
+    expect(
+      rowText({
+        remarks: "Pizza",
+        category: "Food",
+        type: "debit",
+        paymentMode: "online",
+        paymentMethod: "upi",
+      }),
+    ).toEqual({ title: "Pizza", subtitle: "Food · UPI" });
+  });
+
+  it("shows the mode alone under a remark with no category", () => {
+    expect(rowText({ remarks: "Auto", type: "debit", paymentMode: "cash" })).toEqual({
+      title: "Auto",
+      subtitle: "Cash",
+    });
+  });
+
+  it("shows the payment under a category title", () => {
+    expect(rowText({ category: "Food", type: "debit", paymentMode: "cash" })).toEqual({
+      title: "Food",
+      subtitle: "Cash",
+    });
+  });
+
+  it("shows the payment under the fallback title", () => {
+    expect(
+      rowText({ type: "debit", paymentMode: "online", paymentMethod: "card" }),
+    ).toEqual({ title: "Expense", subtitle: "Card" });
+  });
+
+  it("shows the method on money in", () => {
+    expect(
+      rowText({
+        category: "Salary",
+        type: "credit",
+        paymentMode: "online",
+        paymentMethod: "netbanking",
+      }),
+    ).toEqual({ title: "Salary", subtitle: "Net banking" });
+  });
+
+  it("falls back to the mode for an unknown method", () => {
+    expect(
+      rowText({
+        type: "debit",
+        paymentMode: "online",
+        paymentMethod: "crypto" as never,
+      }),
+    ).toEqual({ title: "Expense", subtitle: "Online" });
+  });
 });
 
 describe("categoryColorIndex", () => {

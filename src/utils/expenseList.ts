@@ -6,6 +6,7 @@ import {
   isStorableCategory,
   normalizeCategoryName,
 } from "./expenseCategories";
+import { paymentLabel } from "./paymentMode";
 
 /**
  * Pure helpers behind the grouped expense list (ExpenseScreen): day groups,
@@ -56,17 +57,22 @@ export const displayCategory = (category: unknown): string | null =>
   isStorableCategory(category) ? normalizeCategoryName(category) : null;
 
 /**
- * Title and subtitle of a row. The remark is the title when there is one,
- * with the category under it; otherwise the category is the title alone.
+ * Title and subtitle of a row. The title is the remark, else the category,
+ * else "Expense" / "Money in". The subtitle joins with " · " the category
+ * (only when the remark is the title) and the payment ("UPI", "Cash", ...),
+ * e.g. "Food · UPI"; it is null when neither is there (old rows unchanged).
  */
 export const rowText = (
-  expense: Pick<IExpense, "remarks" | "category" | "type">,
+  expense: Pick<IExpense, "remarks" | "category" | "type" | "paymentMode" | "paymentMethod">,
 ): { title: string; subtitle: string | null } => {
   const category = displayCategory(expense.category);
   const remark = expense.remarks?.trim() || null;
   const fallback = (expense.type || "debit") === "credit" ? "Money in" : "Expense";
-  if (remark) return { title: remark, subtitle: category };
-  return { title: category ?? fallback, subtitle: null };
+  const title = remark ?? category ?? fallback;
+  const parts = [remark ? category : null, paymentLabel(expense)].filter(
+    (part): part is string => !!part,
+  );
+  return { title, subtitle: parts.length ? parts.join(" · ") : null };
 };
 
 /**
