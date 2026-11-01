@@ -130,3 +130,22 @@ export function paymentPayload(
   }
   return { paymentMode: mode };
 }
+
+/**
+ * The payment part of an edit request: `{}` when the chips still show what
+ * they showed when the form opened (the server keeps a missing key), else
+ * both keys as `paymentPayload(current, true)` sends them.
+ *
+ * `initial` is `paymentChoiceOf(expense)` taken when the form opened, so a
+ * value this app doesn't know (from a newer server) survives an edit that
+ * leaves the chips alone instead of being sent back as null.
+ */
+export function editPaymentPayload(
+  initial: PaymentChoice,
+  current: PaymentChoice
+): EditPaymentFields | Record<string, never> {
+  if (initial.mode === current.mode && initial.method === current.method) {
+    return {};
+  }
+  return paymentPayload(current, true);
+}

@@ -3,6 +3,7 @@ import type { IExpense, PaymentMethod, PaymentMode } from "../types";
 import {
   PAYMENT_METHODS,
   PAYMENT_MODES,
+  editPaymentPayload,
   nextPaymentChoice,
   paymentChoiceOf,
   paymentLabel,
@@ -290,6 +291,82 @@ describe("paymentPayload (edit)", () => {
       amount: 100,
       paymentMode: "cash",
       paymentMethod: null,
+    });
+  });
+});
+
+describe("editPaymentPayload", () => {
+  it("is empty when the choice is unchanged", () => {
+    expect(
+      editPaymentPayload(choice("online", "upi"), choice("online", "upi"))
+    ).toEqual({});
+    expect(editPaymentPayload(choice("cash"), choice("cash"))).toEqual({});
+  });
+
+  it("is empty when both are unchanged nulls", () => {
+    expect(editPaymentPayload(NONE, choice(null, null))).toEqual({});
+  });
+
+  it("sends both keys when the mode changed", () => {
+    expect(editPaymentPayload(choice("cash"), choice("online"))).toEqual({
+      paymentMode: "online",
+      paymentMethod: null,
+    });
+    expect(editPaymentPayload(NONE, choice("cash"))).toEqual({
+      paymentMode: "cash",
+      paymentMethod: null,
+    });
+  });
+
+  it("sends both keys when the method changed", () => {
+    expect(
+      editPaymentPayload(choice("online", "upi"), choice("online", "card"))
+    ).toEqual({ paymentMode: "online", paymentMethod: "card" });
+    expect(
+      editPaymentPayload(choice("online"), choice("online", "wallet"))
+    ).toEqual({ paymentMode: "online", paymentMethod: "wallet" });
+    expect(
+      editPaymentPayload(choice("online", "upi"), choice("online"))
+    ).toEqual({ paymentMode: "online", paymentMethod: null });
+  });
+
+  it("sends both nulls when the choice was cleared", () => {
+    expect(editPaymentPayload(choice("online", "upi"), NONE)).toEqual({
+      paymentMode: null,
+      paymentMethod: null,
+    });
+    expect(editPaymentPayload(choice("cash"), NONE)).toEqual({
+      paymentMode: null,
+      paymentMethod: null,
+    });
+  });
+
+  it("keeps an unknown stored method when the chips are left alone", () => {
+    const initial = paymentChoiceOf({
+      paymentMode: "online",
+      paymentMethod: "emi" as never,
+    });
+    const current = paymentChoiceOf({
+      paymentMode: "online",
+      paymentMethod: "emi" as never,
+    });
+    expect(editPaymentPayload(initial, current)).toEqual({});
+  });
+
+  it("spreads into an edit body", () => {
+    const same: EditBody = {
+      amount: 5,
+      ...editPaymentPayload(choice("cash"), choice("cash")),
+    };
+    const changed: EditBody = {
+      amount: 5,
+      ...editPaymentPayload(choice("cash"), choice("online", "upi")),
+    };
+    expect(same).toEqual({ amount: 5 });
+    expect(changed).toEqual({
+      amount: 5,
+      paymentMode: "online",
+      paymentMethod: "upi",
     });
   });
 });
