@@ -1,4 +1,5 @@
 import api from "./axios";
+import type { PaymentMethod, PaymentMode } from "../types";
 
 export const addExpenseApi = (data: {
   amount: number;
@@ -7,6 +8,8 @@ export const addExpenseApi = (data: {
   category?: string;
   type?: "debit" | "credit";
   newCategory?: boolean;
+  paymentMode?: PaymentMode;
+  paymentMethod?: PaymentMethod; // only with paymentMode "online"
 }) => api.post("/expenses", data);
 
 export const getExpensesApi = (

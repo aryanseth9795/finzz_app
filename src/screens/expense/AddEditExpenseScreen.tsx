@@ -15,7 +15,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
-import { useAppDispatch } from "../../store";
+import { useAppDispatch, useAppSelector } from "../../store";
 import { addExpense, updateExpense } from "../../store/slices/expenseSlice";
 import {
   addExpenseApi,
@@ -29,9 +29,17 @@ import {
   toApiDate,
   fromApiDate,
   formatDate,
-  pickerMinimumDate,
+  expensePickerMinimumDate,
   pickerMaximumDate,
+  closedLedgerFor,
+  defaultExpenseDate,
 } from "../../utils/dates";
+import { monthLabel } from "../../utils/months";
+import {
+  PaymentChoice,
+  paymentChoiceOf,
+  paymentPayload,
+} from "../../utils/paymentMode";
 import {
   normalizeCategoryName,
   isStorableCategory,
@@ -55,6 +63,7 @@ import {
   ExpenseCategoryReply,
 } from "../../types";
 import CategoryChips from "./CategoryChips";
+import PaymentModePicker from "./PaymentModePicker";
 
 // Text/icons on coloured fills stay white; the theme has no on-primary token.
 const ON_ACCENT = "#FFFFFF";
@@ -62,25 +71,33 @@ const ON_ACCENT = "#FFFFFF";
 const FORM_BOTTOM_SPACE = 32;
 
 const AddEditExpenseScreen = ({ route, navigation }: any) => {
-  const { expense, ledgerId } = route.params || {};
+  // `period` is the month on screen when + was tapped (absent when editing).
+  const { expense, ledgerId, period } = route.params || {};
   const isEditing = !!expense;
 
   const { theme } = useTheme();
   const { colors, spacing, borderRadius } = theme;
   const { showSuccessToast } = useToast();
   const dispatch = useAppDispatch();
+  // Already loaded by the Expenses screen; used to refuse a closed month as
+  // soon as it is picked, with no request of its own.
+  const ledgers = useAppSelector((state) => state.expense.ledgers);
 
   const [amount, setAmount] = useState(expense?.amount?.toString() || "");
   const [txnType, setTxnType] = useState<"debit" | "credit">(
     expense?.type || "debit",
   );
   // `fromApiDate` reads UTC components, so a stored UTC-midnight value is not
-  // shifted back onto the previous day by the device's timezone.
-  const [date, setDate] = useState(
-    expense ? fromApiDate(expense.date) : new Date(),
+  // shifted back onto the previous day by the device's timezone. A new entry
+  // from a past month's + starts on that month's last day.
+  const [date, setDate] = useState(() =>
+    expense ? fromApiDate(expense.date) : defaultExpenseDate(period),
   );
   const [remarks, setRemarks] = useState(expense?.remarks || "");
   const [category, setCategory] = useState(expense?.category || "");
+  const [payment, setPayment] = useState<PaymentChoice>(() =>
+    paymentChoiceOf(expense),
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [cache, setCache] = useState<ExpenseCategoriesCache | null>(null);
@@ -180,6 +197,23 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
     if (keyboardOpen.current) scrollToFocused();
   };
 
+  /**
+   * True, after telling the user, when `picked` falls in a closed month.
+   *
+   * The Android picker can bound a range but not skip single months, so a
+   * closed month inside the range is refused here. The server refuses it too;
+   * this keeps the form as it was and saves the round trip.
+   */
+  const refuseClosedMonth = (picked: Date): boolean => {
+    const closed = closedLedgerFor(picked, ledgers);
+    if (!closed) return false;
+    Alert.alert(
+      `${monthLabel(closed, "short")} is closed`,
+      "Closed months can't take new entries. Pick a date in an open month.",
+    );
+    return true;
+  };
+
   // Never rejects: CategoryChips doesn't await it. On failure the chip stays.
   const handleRemoveCategory = async (c: IExpenseCategory) => {
     try {
@@ -216,6 +250,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
       Alert.alert("Invalid Amount", parsed.message);
       return;
     }
+    if (refuseClosedMonth(date)) return;
 
     // Category fields (spec table 6.3), built once here so the "Add anyway"
     // path after the duplicate check sends exactly the same data.
@@ -261,39 +296,67 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
     const submit = async () => {
       setSaving(true);
       try {
-        if (isEditing) {
-          const response = await editExpenseApi(expense._id, expenseData);
-          dispatch(updateExpense({ expense: response.data.expense }));
-          // Any category the server stored goes into the saved list (+1 rule).
-          void applyCategoryReply(response.data as ExpenseCategoryReply);
-        } else {
-          const response = await addExpenseApi(expenseData);
-          dispatch(addExpense(response.data.expense));
-          void applyCategoryReply(response.data as ExpenseCategoryReply);
-        }
+        // Payment: an add leaves unset fields out; an edit sends null so a
+        // cleared chip really clears on the server.
+        const response = isEditing
+          ? await editExpenseApi(expense._id, {
+              ...expenseData,
+              ...paymentPayload(payment, true),
+            })
+          : await addExpenseApi({
+              ...expenseData,
+              ...paymentPayload(payment, false),
+            });
+        const saved: IExpense = response.data.expense;
+        dispatch(
+          isEditing ? updateExpense({ expense: saved }) : addExpense(saved),
+        );
+        // Any category the server stored goes into the saved list (+1 rule).
+        void applyCategoryReply(response.data as ExpenseCategoryReply);
 
         /**
-         * Invalidate the cache for BOTH the previous and the new ledger.
+         * Invalidate the cache for every ledger the save touched.
          *
          * Nothing invalidated it before, so within the 60-second TTL a
          * deleted or edited expense reappeared from AsyncStorage on the next
          * visit and then vanished again when the network response landed.
          *
-         * Both keys matter because the server may move the expense to a
-         * different month's ledger when its date changes.
+         * The server files the expense under its date's month, which can
+         * differ from the month the form was opened from (a past date on an
+         * add, a new date on an edit), so the month it left and the month it
+         * went to are both cleared.
          */
+        const fromLedgerId: string | undefined = isEditing
+          ? expense.ledgerId
+          : ledgerId;
+        const touched = new Set(
+          [fromLedgerId, saved.ledgerId].filter((id): id is string => !!id),
+        );
         await Promise.all([
-          cacheManager.remove(CACHE_KEYS.EXPENSES(ledgerId || "")),
+          ...[...touched].map((id) =>
+            cacheManager.remove(CACHE_KEYS.EXPENSES(id)),
+          ),
           cacheManager.remove(CACHE_KEYS.EXPENSE_LEDGERS),
           cacheManager.remove(CACHE_KEYS.EXPENSE_STATS),
         ]);
 
+        // Name the month when it isn't the one the form came from, so an
+        // entry filed under another month doesn't look lost.
+        const savedDate = fromApiDate(saved.date);
+        const otherMonth = monthLabel(
+          { year: savedDate.getFullYear(), month: savedDate.getMonth() + 1 },
+          "short",
+        );
+        const movedMonth = !!fromLedgerId && saved.ledgerId !== fromLedgerId;
+        const noun = txnType === "credit" ? "Credit" : "Expense";
         showSuccessToast(
           isEditing
-            ? "Expense updated!"
-            : txnType === "credit"
-              ? "Credit added!"
-              : "Expense added!",
+            ? movedMonth
+              ? `Moved to ${otherMonth}`
+              : "Expense updated!"
+            : movedMonth
+              ? `${noun} added to ${otherMonth}`
+              : `${noun} added!`,
           parsed.value,
         );
         navigation.goBack();
@@ -502,17 +565,36 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               value={date}
               mode="date"
               display={Platform.OS === "ios" ? "spinner" : "default"}
-              // Bounds that always include the value being edited, so the
-              // Android picker cannot clamp and silently rewrite the date.
-              minimumDate={pickerMinimumDate(isEditing ? expense.date : null)}
+              // Any month up to today: past months take entries until they
+              // are closed. The bounds always include the value being edited,
+              // so the Android picker cannot clamp and silently rewrite it.
+              minimumDate={expensePickerMinimumDate(
+                isEditing ? expense.date : null,
+              )}
               maximumDate={pickerMaximumDate(isEditing ? expense.date : null)}
               onChange={(event, selectedDate) => {
                 setShowDatePicker(Platform.OS === "ios");
                 // Only a deliberate selection: Android also emits "dismissed".
-                if (event.type === "set" && selectedDate) setDate(selectedDate);
+                // A date in a closed month is refused and the old one kept.
+                if (
+                  event.type === "set" &&
+                  selectedDate &&
+                  !refuseClosedMonth(selectedDate)
+                ) {
+                  setDate(selectedDate);
+                }
               }}
             />
           )}
+        </View>
+
+        {/* Payment mode: taps only, so it sits with Date, above the fields
+            that open the keyboard. */}
+        <View style={styles.field}>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>
+            Payment mode (optional)
+          </Text>
+          <PaymentModePicker value={payment} onChange={setPayment} />
         </View>
 
         {/* Remarks */}
