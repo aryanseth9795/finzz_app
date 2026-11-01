@@ -58,7 +58,15 @@ const expenseSlice = createSlice({
       state.txLoading = false;
     },
     addExpense: (state, action: PayloadAction<IExpense>) => {
-      state.expenses = [action.payload, ...state.expenses];
+      const expense = action.payload;
+      // The server files an expense under its date's month, which may not be
+      // the month on screen; listing it here would show it (and count it in
+      // the day totals) under the wrong month until the next refetch.
+      if (state.activeLedger && expense.ledgerId !== state.activeLedger._id) {
+        return;
+      }
+      if (state.expenses.some((e) => e._id === expense._id)) return;
+      state.expenses = [expense, ...state.expenses];
     },
     updateExpense: (
       state,
@@ -67,9 +75,14 @@ const expenseSlice = createSlice({
       const { oldId, expense } = action.payload;
       const searchId = oldId || expense._id;
       const index = state.expenses.findIndex((e) => e._id === searchId);
-      if (index !== -1) {
-        state.expenses[index] = expense;
+      if (index === -1) return;
+      // A new date can move the expense to another month's ledger: drop it
+      // from this month's list rather than keep it under the wrong month.
+      if (state.activeLedger && expense.ledgerId !== state.activeLedger._id) {
+        state.expenses.splice(index, 1);
+        return;
       }
+      state.expenses[index] = expense;
     },
     removeExpense: (state, action: PayloadAction<string>) => {
       state.expenses = state.expenses.filter((e) => e._id !== action.payload);

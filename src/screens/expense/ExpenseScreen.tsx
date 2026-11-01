@@ -510,15 +510,6 @@ const ExpenseScreen = ({ navigation, route }: any) => {
     );
   };
 
-  const isCurrentMonth = () => {
-    if (!activeLedger) return false;
-    const now = new Date();
-    return (
-      activeLedger.year === now.getFullYear() &&
-      activeLedger.month === now.getMonth() + 1
-    );
-  };
-
   const canCloseLedger = () => {
     if (!activeLedger) return false;
     if (activeLedger.status === "closed") return false;
@@ -1124,9 +1115,10 @@ const ExpenseScreen = ({ navigation, route }: any) => {
           }
         />
 
-        {/* FAB - Show for current month (even if no ledger exists) */}
-        {(!activeLedger ||
-          (isCurrentMonth() && activeLedger?.status === "open")) && (
+        {/* FAB - Show for any open month (and before any ledger exists); a
+            closed month is read-only. `period` lets the Add screen start a
+            past month on its last day. */}
+        {(!activeLedger || activeLedger.status === "open") && (
           <TouchableOpacity
             style={[
               styles.fab,
@@ -1135,6 +1127,9 @@ const ExpenseScreen = ({ navigation, route }: any) => {
             onPress={() =>
               navigation.navigate("AddEditExpense", {
                 ledgerId: activeLedger?._id,
+                period: activeLedger
+                  ? { year: activeLedger.year, month: activeLedger.month }
+                  : undefined,
               })
             }
           >
