@@ -11,8 +11,6 @@ import {
   type PaymentTap,
 } from "../../utils/paymentMode";
 
-// Text/icons on the selected fill stay white; the theme has no on-primary token.
-const ON_ACCENT = "#FFFFFF";
 // Row 2 chips are shorter; this brings their touch target up to 44dp
 // without reaching into the next wrapped line (the row gap is 8).
 const METHOD_HIT_SLOP = { top: 4, bottom: 4 };
@@ -20,11 +18,6 @@ const METHOD_HIT_SLOP = { top: 4, bottom: 4 };
 const MODE_ICONS: Record<PaymentMode, keyof typeof Ionicons.glyphMap> = {
   cash: "cash-outline",
   online: "phone-portrait-outline",
-};
-
-const MODE_A11Y_LABELS: Record<PaymentMode, string> = {
-  cash: "Pay by cash",
-  online: "Pay online",
 };
 
 const CLEAR_HINT = "Double tap again to clear";
@@ -48,13 +41,17 @@ export default function PaymentModePicker({
 
   const tap = (next: PaymentTap) => onChange(nextPaymentChoice(value, next));
 
+  // Same selected look as CategoryChips (tinted fill, primary outline and
+  // text), which also keeps the text contrast above AA in both themes.
   const chipColors = (selected: boolean) =>
     selected
-      ? { backgroundColor: colors.primary, borderColor: colors.primary }
+      ? { backgroundColor: colors.primarySurface, borderColor: colors.primary }
       : {
           backgroundColor: colors.inputBackground,
           borderColor: colors.inputBorder,
         };
+  const textColor = (selected: boolean) =>
+    selected ? colors.primary : colors.text;
 
   return (
     <View>
@@ -68,20 +65,19 @@ export default function PaymentModePicker({
               onPress={() => tap({ kind: "mode", value: mode.value })}
               activeOpacity={0.7}
               accessibilityRole="button"
-              accessibilityLabel={MODE_A11Y_LABELS[mode.value]}
+              // Just "Cash" / "Online": the same row serves credits (money
+              // in), where "Pay by…" would read wrong.
+              accessibilityLabel={mode.label}
               accessibilityHint={selected ? CLEAR_HINT : undefined}
               accessibilityState={{ selected }}
             >
               <Ionicons
                 name={MODE_ICONS[mode.value]}
                 size={18}
-                color={selected ? ON_ACCENT : colors.textSecondary}
+                color={selected ? colors.primary : colors.textSecondary}
               />
               <Text
-                style={[
-                  styles.modeText,
-                  { color: selected ? ON_ACCENT : colors.text },
-                ]}
+                style={[styles.modeText, { color: textColor(selected) }]}
                 numberOfLines={1}
               >
                 {mode.label}
@@ -107,12 +103,7 @@ export default function PaymentModePicker({
                 accessibilityHint={selected ? CLEAR_HINT : undefined}
                 accessibilityState={{ selected }}
               >
-                <Text
-                  style={[
-                    styles.methodText,
-                    { color: selected ? ON_ACCENT : colors.text },
-                  ]}
-                >
+                <Text style={[styles.methodText, { color: textColor(selected) }]}>
                   {method.label}
                 </Text>
               </TouchableOpacity>
