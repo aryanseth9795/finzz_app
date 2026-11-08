@@ -21,6 +21,7 @@ interface StaticInfoScreenProps {
   icon: keyof typeof Ionicons.glyphMap;
   accentColor?: string;
   sections: StaticInfoSection[];
+  footer?: React.ReactNode;
 }
 
 const StaticInfoScreen: React.FC<StaticInfoScreenProps> = ({
@@ -29,6 +30,7 @@ const StaticInfoScreen: React.FC<StaticInfoScreenProps> = ({
   icon,
   accentColor,
   sections,
+  footer,
 }) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
@@ -75,6 +77,7 @@ const StaticInfoScreen: React.FC<StaticInfoScreenProps> = ({
             </Text>
           </View>
         ))}
+        {footer}
       </ScrollView>
     </SafeAreaWrapper>
   );

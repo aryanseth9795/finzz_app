@@ -22,6 +22,7 @@ import NotificationsScreen from "../screens/account/NotificationsScreen";
 import PrivacyScreen from "../screens/account/PrivacyScreen";
 import HelpSupportScreen from "../screens/account/HelpSupportScreen";
 import AboutFinzzScreen from "../screens/account/AboutFinzzScreen";
+import DeleteAccountScreen from "../screens/account/DeleteAccountScreen";
 import ReportScreen from "../screens/reports/ReportScreen";
 // Expense screens
 import ExpenseScreen from "../screens/expense/ExpenseScreen";
@@ -115,6 +116,10 @@ const ExpenseStackNavigator = () => {
         component={HelpSupportScreen}
       />
       <ExpenseStack.Screen name="AboutFinzz" component={AboutFinzzScreen} />
+      <ExpenseStack.Screen
+        name="DeleteAccount"
+        component={DeleteAccountScreen}
+      />
     </ExpenseStack.Navigator>
   );
 };

@@ -93,3 +93,7 @@ export const sendVerifyEmailOtpApi = (email: string) =>
 
 export const verifyEmailApi = (email: string, otp: string) =>
   api.post("/users/verify-email", { email, otp });
+
+/** Permanently deletes the signed-in account; the password re-authenticates the request. */
+export const deleteAccountApi = (password: string) =>
+  api.post("/users/delete-account", { password });
