@@ -2,6 +2,8 @@
 
 export const PLAY_PACKAGE = "com.aryanseth9795.finzz";
 
+export const PLAY_STORE_URL = `https://play.google.com/store/apps/details?id=${PLAY_PACKAGE}`;
+
 const PLAY_HTTPS =
   /^https:\/\/play\.google\.com\/store\/apps\/details\?(?:[^#\s]*&)?id=([A-Za-z0-9_.]+)(?:[&#]|$)/;
 const PLAY_MARKET =
@@ -10,7 +12,7 @@ const PLAY_MARKET =
 const packageOf = (url: unknown): string | null => {
   if (typeof url !== "string") return null;
   const m = PLAY_HTTPS.exec(url) ?? PLAY_MARKET.exec(url);
-  return m ? m[1] : null;
+  return m && m[1] === PLAY_PACKAGE ? m[1] : null;
 };
 
 export const isPlayStoreUrl = (url: unknown): boolean => packageOf(url) !== null;
@@ -20,3 +22,9 @@ export const toMarketUrl = (url: unknown): string | null => {
   const pkg = packageOf(url);
   return pkg ? `market://details?id=${pkg}` : null;
 };
+
+/** Play builds (EAS channel "play") always update via Play, whatever the server says. */
+export const resolveUpdateUrl = (
+  serverUrl: string,
+  channel: string | null | undefined,
+): string => (channel === "play" ? PLAY_STORE_URL : serverUrl);

@@ -23,6 +23,7 @@
     },
     "play": {
       "extends": "production",
+      "channel": "play",
       "android": {
         "buildType": "app-bundle"
       }

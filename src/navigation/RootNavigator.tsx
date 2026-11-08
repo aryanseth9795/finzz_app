@@ -23,7 +23,8 @@ import { setLogoutCallback } from "../api/axios";
 import { getProfileApi, refreshTokenApi } from "../api/authApi";
 import { tokenManager } from "../utils/tokenManager";
 import { cacheManager } from "../utils/cacheManager";
-import { isPlayStoreUrl } from "../utils/storeLink";
+import { isPlayStoreUrl, resolveUpdateUrl } from "../utils/storeLink";
+import { updateChannel } from "../utils/distribution";
 import { openUpdateLink } from "../utils/openUpdateLink";
 import {
   resetCategorySync,
@@ -57,7 +58,10 @@ const RootNavigator = () => {
   // version string, so a refetched release object does not re-prompt.
   useEffect(() => {
     if (!gate.optionalVersion) return;
-    const apkUrl = gate.release?.apkUrl;
+    const apkUrl = resolveUpdateUrl(
+      gate.release?.apkUrl ?? "",
+      updateChannel(),
+    );
     Alert.alert(
       "Update available",
       `Finzz v${gate.optionalVersion} is available.`,

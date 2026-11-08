@@ -11,7 +11,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { AppRelease } from "../../utils/version";
-import { isPlayStoreUrl } from "../../utils/storeLink";
+import { isPlayStoreUrl, resolveUpdateUrl } from "../../utils/storeLink";
+import { updateChannel } from "../../utils/distribution";
 import { openUpdateLink } from "../../utils/openUpdateLink";
 
 interface Props {
@@ -24,7 +25,8 @@ const ForceUpdateScreen = ({ release, installedVersion }: Props) => {
   const { theme } = useTheme();
   const { colors } = theme;
   const [error, setError] = useState<string | null>(null);
-  const isPlay = isPlayStoreUrl(release.apkUrl);
+  const url = resolveUpdateUrl(release.apkUrl, updateChannel());
+  const isPlay = isPlayStoreUrl(url);
 
   // Hardware back must not escape the gate.
   useEffect(() => {
@@ -34,12 +36,12 @@ const ForceUpdateScreen = ({ release, installedVersion }: Props) => {
 
   const download = async () => {
     setError(null);
-    if (!release.apkUrl) {
+    if (!url) {
       setError("The download link isn't available yet. Please try again later.");
       return;
     }
     try {
-      await openUpdateLink(release.apkUrl);
+      await openUpdateLink(url);
     } catch {
       setError(
         isPlay
