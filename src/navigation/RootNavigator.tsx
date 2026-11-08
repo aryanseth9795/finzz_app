@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Text,
   Alert,
-  Linking,
 } from "react-native";
 import { useTheme } from "../contexts/ThemeContext";
 import { useToast } from "../contexts/ToastContext";
@@ -24,6 +23,8 @@ import { setLogoutCallback } from "../api/axios";
 import { getProfileApi, refreshTokenApi } from "../api/authApi";
 import { tokenManager } from "../utils/tokenManager";
 import { cacheManager } from "../utils/cacheManager";
+import { isPlayStoreUrl } from "../utils/storeLink";
+import { openUpdateLink } from "../utils/openUpdateLink";
 import {
   resetCategorySync,
   syncCategoriesOnLaunch,
@@ -63,10 +64,10 @@ const RootNavigator = () => {
       [
         { text: "Later", style: "cancel", onPress: gate.dismissOptional },
         {
-          text: "Download",
+          text: isPlayStoreUrl(apkUrl) ? "Update" : "Download",
           onPress: () => {
             gate.dismissOptional();
-            if (apkUrl) void Linking.openURL(apkUrl).catch(() => undefined);
+            if (apkUrl) void openUpdateLink(apkUrl).catch(() => undefined);
           },
         },
       ],
