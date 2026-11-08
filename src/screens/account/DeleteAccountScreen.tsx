@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -24,11 +24,14 @@ import {
 } from "../../utils/deleteAccount";
 
 const DELETED = [
-  "Your profile and login",
+  "Your profile, login and profile photo",
   "Your personal expenses, categories and reports",
   "Your 1:1 chats and their transactions, for you and the friend",
   "Notes you own",
   "Pool entries you added",
+  "Your friend list and friend requests",
+  "Your notifications",
+  "This account's push notification registrations",
 ];
 
 const STAYS = [
@@ -47,6 +50,7 @@ const DeleteAccountScreen = ({ navigation }: any) => {
   const [typed, setTyped] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const inFlight = useRef(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   useEffect(() => {
@@ -65,7 +69,8 @@ const DeleteAccountScreen = ({ navigation }: any) => {
   }, []);
 
   const handleDelete = async () => {
-    if (loading || !canSubmitDeletion(password, typed)) return;
+    if (inFlight.current || !canSubmitDeletion(password, typed)) return;
+    inFlight.current = true;
     setLoading(true);
     setError("");
     try {
@@ -80,6 +85,7 @@ const DeleteAccountScreen = ({ navigation }: any) => {
       // Keep the confirm word, but never leave the password sitting in state.
       setPassword("");
       setLoading(false);
+      inFlight.current = false;
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
