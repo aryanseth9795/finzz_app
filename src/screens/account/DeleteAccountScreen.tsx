@@ -32,12 +32,13 @@ const DELETED = [
   "Your friend list and friend requests",
   "Your notifications",
   "This account's push notification registrations",
+  "Your daily usage records",
 ];
 
 const STAYS = [
   "The Password Vault on this phone (it never left your device)",
   "Notes friends shared with you stay with their owners",
-  "Pools keep their other members",
+  "Pools keep their other members, the pool itself (its name, description and rules) and entries other members added",
 ];
 
 const DeleteAccountScreen = ({ navigation }: any) => {
