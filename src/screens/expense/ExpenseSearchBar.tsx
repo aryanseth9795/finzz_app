@@ -44,7 +44,7 @@ export default function ExpenseSearchBar({
           style={[styles.input, { color: colors.text }]}
           value={value}
           onChangeText={onChangeText}
-          placeholder="Search remarks or categories"
+          placeholder="Remark, category or amount"
           placeholderTextColor={colors.inputPlaceholder}
           returnKeyType="search"
           maxLength={MAX_QUERY_LENGTH}
