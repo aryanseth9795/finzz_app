@@ -174,7 +174,7 @@ def feature_graphic(concept):
     d = ImageDraw.Draw(fg)
     t1, t2 = "Finzz", "Expenses & IOUs with friends"
     b1, b2 = d.textbbox((0, 0), t1, font=f1), d.textbbox((0, 0), t2, font=f2)
-    pills = ["Split with friends", "Track spending", "Private vault"]
+    pills = ["Friend ledgers", "Track spending", "Private vault"]
     ps, pad, gap, ph = 22, 14, 10, 40
     while True:
         fp = font(REG, ps)
