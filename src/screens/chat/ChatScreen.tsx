@@ -446,7 +446,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                 {isFresh ? `₹${totalSent.toLocaleString("en-IN")}` : "—"}
               </Text>
             </View>
-            <View style={styles.statDivider} />
+            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
             <View style={styles.statItem}>
               <Text
                 style={[
@@ -465,7 +465,7 @@ const ChatScreen = ({ route, navigation }: any) => {
                 {isFresh ? `₹${totalReceived.toLocaleString("en-IN")}` : "—"}
               </Text>
             </View>
-            <View style={styles.statDivider} />
+            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
             <View style={styles.statItem}>
               <Text
                 style={[
@@ -1060,7 +1060,8 @@ const styles = StyleSheet.create({
   statDivider: {
     width: 1,
     height: 40,
-    backgroundColor: "#E2E8F0", // Slate-200
+    // Colour comes from the theme at render time (colors.border); a fixed
+    // Slate-200 here drew bright lines in dark mode.
     marginHorizontal: 8,
   },
   statItemLabel: {
