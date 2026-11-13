@@ -1,8 +1,8 @@
 """Draw the Finzz logo from geometry and write app icons + Play Store graphics.
 
 Usage:
-  python scripts/make-store-assets.py                 # concept B (default, the chosen logo)
-  python scripts/make-store-assets.py --concept A     # earlier concepts A or C
+  python scripts/make-store-assets.py                 # concept A (default)
+  python scripts/make-store-assets.py --concept B     # concept B or C
   python scripts/make-store-assets.py --sheet         # store/logo-concepts.png
 """
 import argparse
@@ -255,7 +255,7 @@ def sheet():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--concept", choices=list("ABC"), default="B")
+    ap.add_argument("--concept", choices=list("ABC"), default="A")
     ap.add_argument("--sheet", action="store_true")
     a = ap.parse_args()
     if a.sheet:

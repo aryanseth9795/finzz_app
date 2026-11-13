@@ -1,8 +1,8 @@
 # Store assets
 
-The Finzz logo (concept B, chosen 2026-11-13: two overlapping rings with a mint overlap, on deep navy) is drawn from geometry by `scripts/make-store-assets.py`. No image source is needed.
+The Finzz logo (concept A: a white "F" with a mint coin on an indigo-to-blue gradient) is drawn from geometry by `scripts/make-store-assets.py`. No image source is needed.
 
-Regenerate everything with `python scripts/make-store-assets.py`. Concept B is the default; the adaptive icon background is `#172554`.
+Regenerate everything with `python scripts/make-store-assets.py`. Concept A is the default.
 
 | File | Size | Purpose | Goes to |
 |---|---|---|---|
@@ -11,8 +11,7 @@ Regenerate everything with `python scripts/make-store-assets.py`. Concept B is t
 | `../assets/notification-icon.png` | 96x96 RGBA | White monochrome status-bar icon | App (expo-notifications plugin) |
 | `play-icon-512.png` | 512x512 PNG | Hi-res icon | Play Console → Store listing → App icon |
 | `feature-graphic-1024x500.png` | 1024x500 RGB, no alpha | Feature graphic | Play Console → Store listing → Feature graphic |
-| `logo-B.svg` | vector | Master for the website and other uses | — |
-| `logo-A.svg` | vector | Earlier concept A, kept for reference | — |
+| `logo-A.svg` | vector | Master for the website and other uses | — |
 | `logo-concepts.png` | 1536x560 | Concepts A, B and C side by side | Reference |
 | `source-logo.png` | 442x432 | The old logo, kept for reference | Not used |
 
