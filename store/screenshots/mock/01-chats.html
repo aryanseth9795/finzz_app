@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=360,initial-scale=1">
+<title>Chats</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800;900&display=block" rel="stylesheet">
+<link rel="stylesheet" href="kit.css">
+<style>
+/* HomeScreen header */
+.hdr{display:flex;justify-content:space-between;align-items:center;padding:10px 24px 12px}
+.logo{flex:1;font-size:28px;font-weight:900;font-style:italic;letter-spacing:-1px;color:var(--primary)}
+.acts{display:flex;align-items:center;gap:16px}
+.hbtn{width:44px;height:44px;border-radius:22px;background:var(--surface-secondary);display:flex;align-items:center;justify-content:center}
+/* ChatCard */
+.card{display:flex;align-items:center;gap:16px;padding:16px 20px;border-bottom:.5px solid var(--separator-light)}
+.content{flex:1;display:flex;justify-content:space-between;align-items:center;min-width:0}
+.main{flex:1;margin-right:12px;min-width:0}
+.name{font-size:var(--fs-lg);font-weight:700;letter-spacing:-.3px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prev{font-size:var(--fs-sm);font-weight:500;color:var(--text-tertiary);opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.date{font-size:11px;font-weight:600;color:var(--text-tertiary);opacity:.7}
+</style></head><body>
+<div id="statusbar"></div>
+<main class="screen">
+<div class="hdr">
+  <div class="logo">Finzz</div>
+  <div class="acts">
+    <div class="hbtn"><i data-ion="person-add-outline" style="font-size:22px;color:var(--text)"></i></div>
+    <span class="avatar" data-name="Aarav Kapoor" data-size="40"></span>
+  </div>
+</div>
+<div id="list"></div>
+</main>
+<nav id="tabbar" data-active="Chats"></nav>
+<script src="icons.js"></script><script src="kit.js"></script>
+<script>
+var chats=[["Rohan Mehta","Auto fare","11 Nov"],["Priya Nair","Cab to airport","10 Nov"],["Vikram Singh","Weekend trek stay","08 Nov"],["Ananya Iyer","Book club snacks","05 Nov"],["Karan Malhotra","Chai and samosa","02 Nov"],["Sneha Reddy","Settled up","28 Oct"]];
+document.getElementById("list").innerHTML=chats.map(function(c){return '<div class="card"><span class="avatar" data-name="'+c[0]+'" data-size="56"></span><div class="content"><div class="main"><div class="name">'+c[0]+'</div><div class="prev">'+c[1]+'</div></div><div class="date">'+c[2]+'</div></div></div>'}).join("");
+Finzz.avatars(document);
+</script>
+</body></html>

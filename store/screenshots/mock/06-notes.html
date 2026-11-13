@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=360,initial-scale=1">
+<title>Finzz notes</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=block" rel="stylesheet">
+<link rel="stylesheet" href="kit.css">
+<style>
+.hd{display:flex;align-items:center;justify-content:space-between;padding:14px var(--sp-xl);border-bottom:.5px solid var(--separator);background:var(--background)}
+.hd h1{font-size:var(--fs-xxl);font-weight:700;letter-spacing:-.5px}
+.sw{padding:12px 16px 0}
+.sb{display:flex;align-items:center;gap:8px;padding:0 12px;height:42px;border-radius:12px;border:1px solid var(--input-border);background:var(--input-bg);color:var(--text-tertiary);font-size:var(--fs-md)}
+.sb i{font-size:18px}
+.seg{display:flex;margin:12px 16px 0;padding:3px;border-radius:10px;background:var(--surface)}
+.seg div{flex:1;text-align:center;padding:8px 0;border-radius:8px;font-size:var(--fs-sm);font-weight:600;color:var(--text-secondary)}
+.seg div.on{background:var(--primary);color:#fff}
+.chips{display:flex;gap:8px;padding:0 16px;margin-top:12px}
+.chip{padding:7px 14px;border-radius:16px;border:1px solid var(--separator);background:var(--surface);font-size:var(--fs-sm);font-weight:500;color:var(--text);white-space:nowrap}
+.chip.on{background:var(--primary);border-color:var(--primary);color:#fff}
+.list{padding:16px}
+.card{padding:14px;border-radius:12px;margin-bottom:12px;background:var(--surface);display:flex;flex-direction:column;gap:6px}
+.card .t{font-size:var(--fs-lg);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card .p{font-size:var(--fs-md);line-height:20px;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .f{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:2px}
+.card .ts{font-size:var(--fs-xs);color:var(--text-tertiary)}
+.meta{display:flex;align-items:center;gap:8px}
+.pc{display:flex;align-items:center;gap:5px;padding:3px 8px 3px 3px;border-radius:12px;background:var(--primary-surface);font-size:var(--fs-xs);font-weight:500}
+.sh{display:flex;align-items:center;gap:3px;font-size:var(--fs-xs);font-weight:500;color:var(--text-tertiary)}
+.fab{position:absolute;bottom:24px;right:24px;width:56px;height:56px;border-radius:28px;background:var(--primary);display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 2px 4px rgba(0,0,0,.25)}
+</style>
+</head><body>
+<div id="statusbar"></div>
+<main class="screen">
+  <div class="hd"><h1>Notes</h1></div>
+  <div class="sw"><div class="sb"><i data-ion="search"></i><span>Search notes</span></div></div>
+  <div class="seg"><div class="on">All</div><div>Mine</div><div>Shared with me</div></div>
+  <div class="chips"><span class="chip on">Everyone</span><span class="chip">No label</span><span class="chip">Priya Nair (1)</span></div>
+  <div class="list">
+    <div class="card"><div class="t">Goa packing list</div><div class="p">sunscreen, swimwear, power bank, ID copies</div><div class="f"><span class="ts">Edited Yesterday</span></div></div>
+    <div class="card"><div class="t">Flat 302 rules</div><div class="p">bin duty rota, Wi-Fi password lives in Vault, rent due on 1st</div><div class="f"><span class="ts">Edited 9 Nov 2026</span><div class="meta"><span class="pc"><span class="avatar" data-name="Priya Nair" data-size="16"></span><span>Priya Nair</span></span><span class="sh"><i data-ion="people" style="font-size:14px"></i><span>1</span></span></div></div></div>
+    <div class="card"><div class="t">Gift ideas</div><div class="p">Mom - silk scarf; Dad - trekking shoes; Rohan - cricket grip</div><div class="f"><span class="ts">Edited 3 Nov 2026</span></div></div>
+  </div>
+  <div class="fab"><i data-ion="add" style="font-size:28px"></i></div>
+</main>
+<nav id="tabbar" data-active="Notes"></nav>
+<script src="icons.js"></script><script src="kit.js"></script>
+</body></html>

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=360,initial-scale=1">
+<title>Expenses</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=block" rel="stylesheet">
+<link rel="stylesheet" href="kit.css">
+<style>
+.tnum{font-variant-numeric:tabular-nums}
+.header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface)}
+.header .title{font-size:20px;font-weight:700;color:var(--text)}
+.header .acts{display:flex;align-items:center;gap:12px}
+.header .btn{padding:4px;display:flex}
+.header .btn i{color:var(--primary)}
+.lp{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface)}
+.lp .lbl{font-size:14px;font-weight:600;color:var(--text-secondary);white-space:nowrap}
+.lp .lb{display:flex;align-items:center;gap:8px;padding:6px 12px;border-radius:8px;background:var(--primary-surface);color:var(--primary);font-size:14px;font-weight:600}
+.stats{background:var(--surface);padding:12px 16px}
+.stats .r{display:flex;gap:12px}
+.stat{flex:1;padding:10px 12px;border-radius:12px;background:var(--surface-secondary);display:flex;flex-direction:column;align-items:center}
+.stat .l{font-size:12px;font-weight:600;color:var(--text-secondary)}
+.stat .v{align-self:stretch;text-align:center;font-size:24px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+.net{text-align:center;font-size:13px;color:var(--text-secondary);margin-top:8px}
+.net b{font-weight:600}
+.dh{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:18px 16px 6px}
+.dh .dl{font-size:13px;font-weight:700;color:var(--text)}
+.dh .dt{font-size:12px;font-weight:600;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.row{display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 16px}
+.row .av{width:38px;height:38px;border-radius:19px;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex:none}
+.row .tx{flex:1;min-width:0}
+.row .t{font-size:15px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .s{font-size:12px;margin-top:2px;color:var(--text-secondary)}
+.row .a{flex:none;font-size:15px;font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+.fab{position:absolute;bottom:24px;right:24px;width:56px;height:56px;border-radius:28px;background:var(--primary);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 4px rgba(15,23,42,.25),0 2px 6px rgba(15,23,42,.15);z-index:30}
+.fab i{color:#fff}
+</style></head><body>
+<div id="statusbar"></div>
+<main class="screen">
+<div class="header"><span class="title">Expenses</span>
+ <div class="acts">
+  <span class="btn"><i data-ion="search-outline"></i></span>
+  <span class="btn"><i data-ion="options-outline"></i></span>
+  <span class="btn"><i data-ion="stats-chart-outline"></i></span>
+  <span class="avatar" data-name="Aarav Kapoor" data-size="40"></span>
+ </div></div>
+<div class="lp"><span class="lbl">Ledger period:</span>
+ <span class="lb"><i data-ion="calendar-outline" style="font-size:18px"></i>Nov 2026<i data-ion="chevron-down" style="font-size:18px"></i></span></div>
+<div class="stats">
+ <div class="r">
+  <div class="stat"><span class="l">Money out</span><span class="v" id="out" style="color:var(--debit)"></span></div>
+  <div class="stat"><span class="l">Money in</span><span class="v" id="in" style="color:var(--credit)"></span></div>
+ </div>
+ <div class="net">Net <b id="net" style="color:var(--credit)"></b> surplus</div>
+</div>
+<div id="list"></div>
+<div class="fab"><i data-ion="add" style="font-size:28px"></i></div>
+</main>
+<nav id="tabbar" data-active="Expenses"></nav>
+<script src="icons.js"></script><script src="kit.js"></script>
+<script>
+const D=[
+["12","Office lunch","Food","UPI",550],["11","Petrol","Transport","Card",440],
+["10","Biryani","Food","UPI",540],["10","Gas cylinder","Bills","UPI",402],
+["09","Pharmacy","Health","Cash",600],["09","T-shirt","Shopping","Card",651],
+["08","Cafe brunch","Food","UPI",780],["08","Movie","Entertainment","UPI",550],
+["07","Uber","Transport","UPI",320],["06","Mobile recharge","Bills","UPI",599],["01","Salary","Income","Net banking",45000,"c"]];
+const pal=["--chart-1","--chart-2","--chart-3","--chart-4","--chart-5","--chart-6","--chart-7","--chart-8"]
+ .map(v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+const idx=c=>{let h=0;const k=c.toLowerCase();for(let i=0;i<k.length;i++)h=(h*31+k.charCodeAt(i))|0;return Math.abs(h)%pal.length};
+const wd={"12":"Yesterday","11":"Wed, 11 Nov","10":"Tue, 10 Nov","09":"Mon, 9 Nov","08":"Sun, 8 Nov","07":"Sat, 7 Nov","06":"Fri, 6 Nov","01":"Sun, 1 Nov"};
+const tot={};D.forEach(r=>tot[r[0]]=(tot[r[0]]||0)+(r[5]?0:r[4]));
+const m=n=>n.toLocaleString("en-IN");
+let html="",last="";
+D.forEach(r=>{
+ if(r[0]!==last){last=r[0];html+=`<div class="dh"><span class="dl">${wd[r[0]]}</span><span class="dt">${r[5]?`<span style="color:var(--credit)">+\u20B9${m(r[4])}</span>`:`\u2212\u20B9${m(tot[r[0]])}`}</span></div>`;}
+ const c=pal[idx(r[2])];
+ html+=`<div class="row"><div class="av" style="background:${c}29;color:${c}">${r[2][0]}</div><div class="tx"><div class="t">${r[1]}</div><div class="s">${r[2]} \u00B7 ${r[3]}</div></div><div class="a"${r[5]?' style="color:var(--credit)"':''}>${r[5]?"+":"\u2212"}\u20B9${m(r[4])}</div></div>`;
+});
+document.getElementById("list").innerHTML=html;
+document.getElementById("out").textContent="\u20B9"+m(13540);
+document.getElementById("in").textContent="\u20B9"+m(45000);
+document.getElementById("net").textContent="+\u20B9"+m(31460);
+Finzz.icons(document);Finzz.avatars(document);
+</script>
+</body></html>
