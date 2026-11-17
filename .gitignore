@@ -43,3 +43,7 @@ yarn-error.*
 /google-services.json
 
 
+
+# Play screenshot captures can show personal data (store/screenshots/README.md)
+/store/screenshots/raw/
+/store/screenshots/_test/

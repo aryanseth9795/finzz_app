@@ -2,8 +2,9 @@ import { writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { renderChatReportHtml } from "D:/Desktop/Finzz/worktrees/server/account-deletion/src/services/chatReport/template.ts";
-import { buildInsights } from "D:/Desktop/Finzz/worktrees/server/account-deletion/src/services/chatReport/insights.ts";
+// Reads the report template from the server checkout; it needs that checkout on server main (chatReport/ lives there).
+import { renderChatReportHtml } from "D:/Desktop/Finzz/server/src/services/chatReport/template.ts";
+import { buildInsights } from "D:/Desktop/Finzz/server/src/services/chatReport/insights.ts";
 
 // Rohan Mehta chat (DEMO.md), viewer = Aarav. gave = Aarav paid.
 const rows: [string, string, number, "gave" | "received", "verified" | "pending", "me" | "friend"][] = [
