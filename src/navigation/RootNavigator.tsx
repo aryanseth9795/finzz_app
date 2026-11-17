@@ -10,7 +10,6 @@ import {
   StyleSheet,
   Text,
   Alert,
-  Linking,
 } from "react-native";
 import { useTheme } from "../contexts/ThemeContext";
 import { useToast } from "../contexts/ToastContext";
@@ -24,6 +23,13 @@ import { setLogoutCallback } from "../api/axios";
 import { getProfileApi, refreshTokenApi } from "../api/authApi";
 import { tokenManager } from "../utils/tokenManager";
 import { cacheManager } from "../utils/cacheManager";
+import { isPlayStoreUrl, resolveUpdateUrl } from "../utils/storeLink";
+import { updateChannel } from "../utils/distribution";
+import { openUpdateLink } from "../utils/openUpdateLink";
+import {
+  resetCategorySync,
+  syncCategoriesOnLaunch,
+} from "../utils/expenseCategorySync";
 import { useNotifications } from "../hooks/useNotifications";
 import { useAppUpdates } from "../hooks/useAppUpdates";
 import { useForceUpdate } from "../hooks/useForceUpdate";
@@ -52,17 +58,20 @@ const RootNavigator = () => {
   // version string, so a refetched release object does not re-prompt.
   useEffect(() => {
     if (!gate.optionalVersion) return;
-    const apkUrl = gate.release?.apkUrl;
+    const apkUrl = resolveUpdateUrl(
+      gate.release?.apkUrl ?? "",
+      updateChannel(),
+    );
     Alert.alert(
       "Update available",
       `Finzz v${gate.optionalVersion} is available.`,
       [
         { text: "Later", style: "cancel", onPress: gate.dismissOptional },
         {
-          text: "Download",
+          text: isPlayStoreUrl(apkUrl) ? "Update" : "Download",
           onPress: () => {
             gate.dismissOptional();
-            if (apkUrl) void Linking.openURL(apkUrl).catch(() => undefined);
+            if (apkUrl) void openUpdateLink(apkUrl).catch(() => undefined);
           },
         },
       ],
@@ -81,6 +90,8 @@ const RootNavigator = () => {
    */
   const signOut = useCallback(
     async (reason?: string) => {
+      // First, so a category fetch still in flight cannot write after the wipe.
+      resetCategorySync();
       await tokenManager.clearAll();
       await cacheManager.clearAll();
       dispatch(logoutAction());
@@ -140,6 +151,8 @@ const RootNavigator = () => {
 
         if (profile.data?.success && profile.data.user) {
           dispatch(setCredentials(profile.data.user));
+          // Background only: never blocks the splash screen, never throws.
+          void syncCategoriesOnLaunch(profile.data.user.expenseCategoriesVersion);
           await tokenManager.setUserData(JSON.stringify(profile.data.user));
         }
       } catch {

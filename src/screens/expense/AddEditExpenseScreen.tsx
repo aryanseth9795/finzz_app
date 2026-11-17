@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -8,13 +8,14 @@ import {
   ScrollView,
   Alert,
   Platform,
+  Keyboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
-import { useAppDispatch } from "../../store";
+import { useAppDispatch, useAppSelector } from "../../store";
 import { addExpense, updateExpense } from "../../store/slices/expenseSlice";
 import {
   addExpenseApi,
@@ -28,36 +29,207 @@ import {
   toApiDate,
   fromApiDate,
   formatDate,
-  pickerMinimumDate,
+  expensePickerMinimumDate,
   pickerMaximumDate,
+  closedLedgerFor,
+  defaultExpenseDate,
 } from "../../utils/dates";
-import { IExpense } from "../../types";
+import {
+  monthLabel,
+  isSameMonth,
+  currentYearMonth,
+} from "../../utils/months";
+import {
+  PaymentChoice,
+  paymentChoiceOf,
+  paymentPayload,
+  editPaymentPayload,
+} from "../../utils/paymentMode";
+import {
+  normalizeCategoryName,
+  isStorableCategory,
+  chipsFor,
+  findCategory,
+  isNewCategory,
+  resolveSpelling,
+  categoryChangedOnEdit,
+} from "../../utils/expenseCategories";
+import {
+  readSavedCategories,
+  subscribeCategories,
+  ensureCategories,
+  applyCategoryReply,
+  removeExpenseCategory,
+} from "../../utils/expenseCategorySync";
+import {
+  IExpense,
+  IExpenseCategory,
+  ExpenseCategoriesCache,
+  ExpenseCategoryReply,
+} from "../../types";
+import CategoryChips from "./CategoryChips";
+import PaymentModePicker from "./PaymentModePicker";
 
 // Text/icons on coloured fills stay white; the theme has no on-primary token.
 const ON_ACCENT = "#FFFFFF";
+// Room under Save so it scrolls fully clear of the tab bar.
+const FORM_BOTTOM_SPACE = 32;
 
 const AddEditExpenseScreen = ({ route, navigation }: any) => {
-  const { expense, ledgerId } = route.params || {};
+  // `period` is the month on screen when + was tapped (absent when editing).
+  const { expense, ledgerId, period } = route.params || {};
   const isEditing = !!expense;
 
   const { theme } = useTheme();
   const { colors, spacing, borderRadius } = theme;
   const { showSuccessToast } = useToast();
   const dispatch = useAppDispatch();
+  // Already loaded by the Expenses screen; used to refuse a closed month as
+  // soon as it is picked, with no request of its own.
+  const ledgers = useAppSelector((state) => state.expense.ledgers);
 
   const [amount, setAmount] = useState(expense?.amount?.toString() || "");
   const [txnType, setTxnType] = useState<"debit" | "credit">(
     expense?.type || "debit",
   );
   // `fromApiDate` reads UTC components, so a stored UTC-midnight value is not
-  // shifted back onto the previous day by the device's timezone.
-  const [date, setDate] = useState(
-    expense ? fromApiDate(expense.date) : new Date(),
+  // shifted back onto the previous day by the device's timezone. A new entry
+  // from a past month's + starts on that month's last day.
+  const [date, setDate] = useState(() =>
+    expense ? fromApiDate(expense.date) : defaultExpenseDate(period),
   );
   const [remarks, setRemarks] = useState(expense?.remarks || "");
   const [category, setCategory] = useState(expense?.category || "");
+  // What the chips showed when the form opened; an edit that leaves them
+  // alone sends no payment keys, so the server keeps what it has.
+  const [initialPayment] = useState<PaymentChoice>(() =>
+    paymentChoiceOf(expense),
+  );
+  const [payment, setPayment] = useState<PaymentChoice>(initialPayment);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [cache, setCache] = useState<ExpenseCategoriesCache | null>(null);
+
+  // The screen reads only the saved category list. `ensureCategories` fetches
+  // it once when there is none: offline at launch, or a fresh login, which
+  // doesn't run the launch sync.
+  useEffect(() => {
+    let active = true;
+    // A write that lands first is newer than the read, so the read yields.
+    let heard = false;
+    readSavedCategories().then((saved) => {
+      if (active && !heard) setCache(saved);
+    });
+    const unsubscribe = subscribeCategories((next) => {
+      heard = true;
+      setCache(next);
+    });
+    void ensureCategories();
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  const list = useMemo(() => cache?.categories ?? [], [cache]);
+  const chips = useMemo(
+    () => chipsFor(list, txnType, category),
+    [list, txnType, category],
+  );
+  const selectedId = findCategory(list, txnType, category)?._id ?? null;
+
+  /**
+   * Keep the focused field above the keyboard.
+   *
+   * The app draws edge to edge, so on Android the window no longer shrinks
+   * when the keyboard opens and the ScrollView keeps its full height: the
+   * keyboard simply covers Remarks, Category and its chips. The form instead
+   * gets the keyboard's height as extra bottom space, so it can scroll that
+   * far, and the focused field is scrolled to the top of what stays visible.
+   */
+  const scrollRef = useRef<ScrollView>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const keyboardOpen = useRef(false);
+  // Field offsets inside the form, from onLayout; the focused one's key.
+  const fieldY = useRef<Record<string, number>>({});
+  const focusedField = useRef<string | null>(null);
+
+  const scrollToFocused = () => {
+    const y =
+      focusedField.current !== null
+        ? fieldY.current[focusedField.current]
+        : undefined;
+    if (y === undefined) return;
+    // After the extra bottom space has rendered, or the scroll is clamped.
+    requestAnimationFrame(() =>
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true }),
+    );
+  };
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const onShow = Keyboard.addListener(showEvent, (e) => {
+      keyboardOpen.current = true;
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const onHide = Keyboard.addListener(hideEvent, () => {
+      keyboardOpen.current = false;
+      focusedField.current = null;
+      setKeyboardHeight(0);
+    });
+    return () => {
+      onShow.remove();
+      onHide.remove();
+    };
+  }, []);
+
+  // Scroll once the extra bottom space is committed, so the scroll isn't
+  // clamped to the shorter content. Height goes back to 0 on hide, so every
+  // opening of the keyboard runs this again.
+  useEffect(() => {
+    if (keyboardHeight > 0) scrollToFocused();
+  }, [keyboardHeight]);
+
+  const trackField = (key: string) => ({
+    onLayout: (e: { nativeEvent: { layout: { y: number } } }) => {
+      fieldY.current[key] = e.nativeEvent.layout.y;
+    },
+  });
+
+  // Moving focus while the keyboard is already open fires no show event.
+  const focusField = (key: string) => {
+    focusedField.current = key;
+    if (keyboardOpen.current) scrollToFocused();
+  };
+
+  /**
+   * True, after telling the user, when `picked` falls in a closed month.
+   *
+   * The Android picker can bound a range but not skip single months, so a
+   * closed month inside the range is refused here. The server refuses it too;
+   * this keeps the form as it was and saves the round trip.
+   */
+  const refuseClosedMonth = (picked: Date): boolean => {
+    const closed = closedLedgerFor(picked, ledgers);
+    if (!closed) return false;
+    Alert.alert(
+      `${monthLabel(closed, "short")} is closed`,
+      "Closed months can't take new entries. Pick a date in an open month.",
+    );
+    return true;
+  };
+
+  // Never rejects: CategoryChips doesn't await it. On failure the chip stays.
+  const handleRemoveCategory = async (c: IExpenseCategory) => {
+    try {
+      await removeExpenseCategory(c);
+    } catch (error) {
+      Alert.alert("Could not remove", describeError(error));
+    }
+  };
 
   /**
    * Save an expense.
@@ -86,49 +258,118 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
       Alert.alert("Invalid Amount", parsed.message);
       return;
     }
+    if (refuseClosedMonth(date)) return;
+
+    // Category fields (spec table 6.3), built once here so the "Add anyway"
+    // path after the duplicate check sends exactly the same data.
+    const normalized = normalizeCategoryName(category);
+    let categoryFields: { category?: string; newCategory?: true };
+    if (isStorableCategory(normalized)) {
+      if (
+        isEditing &&
+        !categoryChangedOnEdit(
+          { category: expense.category, type: expense.type || "debit" },
+          { category: normalized, type: txnType },
+        )
+      ) {
+        // An edit is resolved or flagged only when its category or type
+        // changed. Otherwise an amount-only edit of an old "Fodo" would bring
+        // back a chip the user removed, and an old "food" would be rewritten
+        // to "Food". The text is saved as before.
+        categoryFields = { category: category.trim() || undefined };
+      } else {
+        // The saved spelling when the list has it ("food" → "Food"). Flagged
+        // only when it doesn't, so the server adds it to the list.
+        categoryFields = {
+          category: resolveSpelling(list, txnType, normalized),
+        };
+        if (isNewCategory(list, txnType, normalized)) {
+          categoryFields.newCategory = true;
+        }
+      }
+    } else {
+      // Blank or the old "-" placeholder: saved as before, never flagged.
+      categoryFields = { category: normalized || undefined };
+    }
 
     const expenseData = {
       amount: parsed.value,
       // UTC midnight of the picked calendar date — see utils/dates.ts.
       date: toApiDate(date),
       remarks: remarks.trim() || undefined,
-      category: category.trim() || undefined,
+      ...categoryFields,
       type: txnType,
     };
 
     const submit = async () => {
       setSaving(true);
       try {
-        if (isEditing) {
-          const response = await editExpenseApi(expense._id, expenseData);
-          dispatch(updateExpense({ expense: response.data.expense }));
-        } else {
-          const response = await addExpenseApi(expenseData);
-          dispatch(addExpense(response.data.expense));
-        }
+        // Payment: an add leaves unset fields out; an edit sends both keys
+        // (null clears) only when the chips changed.
+        const response = isEditing
+          ? await editExpenseApi(expense._id, {
+              ...expenseData,
+              ...editPaymentPayload(initialPayment, payment),
+            })
+          : await addExpenseApi({
+              ...expenseData,
+              ...paymentPayload(payment, false),
+            });
+        const saved: IExpense = response.data.expense;
+        dispatch(
+          isEditing ? updateExpense({ expense: saved }) : addExpense(saved),
+        );
+        // Any category the server stored goes into the saved list (+1 rule).
+        void applyCategoryReply(response.data as ExpenseCategoryReply);
 
         /**
-         * Invalidate the cache for BOTH the previous and the new ledger.
+         * Invalidate the cache for every ledger the save touched.
          *
          * Nothing invalidated it before, so within the 60-second TTL a
          * deleted or edited expense reappeared from AsyncStorage on the next
          * visit and then vanished again when the network response landed.
          *
-         * Both keys matter because the server may move the expense to a
-         * different month's ledger when its date changes.
+         * The server files the expense under its date's month, which can
+         * differ from the month the form was opened from (a past date on an
+         * add, a new date on an edit), so the month it left and the month it
+         * went to are both cleared.
          */
+        const fromLedgerId: string | undefined = isEditing
+          ? expense.ledgerId
+          : ledgerId;
+        const touched = new Set(
+          [fromLedgerId, saved.ledgerId].filter((id): id is string => !!id),
+        );
         await Promise.all([
-          cacheManager.remove(CACHE_KEYS.EXPENSES(ledgerId || "")),
+          ...[...touched].map((id) =>
+            cacheManager.remove(CACHE_KEYS.EXPENSES(id)),
+          ),
           cacheManager.remove(CACHE_KEYS.EXPENSE_LEDGERS),
           cacheManager.remove(CACHE_KEYS.EXPENSE_STATS),
         ]);
 
+        // Name the month when it isn't the one the form came from, so an
+        // entry filed under another month doesn't look lost. Without a ledger
+        // id (+ tapped before any ledger loaded) the form came from the month
+        // on screen, or this month.
+        const savedDate = fromApiDate(saved.date);
+        const savedMonth = {
+          year: savedDate.getFullYear(),
+          month: savedDate.getMonth() + 1,
+        };
+        const otherMonth = monthLabel(savedMonth, "short");
+        const movedMonth = fromLedgerId
+          ? saved.ledgerId !== fromLedgerId
+          : !isSameMonth(savedMonth, period ?? currentYearMonth(new Date()));
+        const noun = txnType === "credit" ? "Credit" : "Expense";
         showSuccessToast(
           isEditing
-            ? "Expense updated!"
-            : txnType === "credit"
-              ? "Credit added!"
-              : "Expense added!",
+            ? movedMonth
+              ? `Moved to ${otherMonth}`
+              : "Expense updated!"
+            : movedMonth
+              ? `${noun} added to ${otherMonth}`
+              : `${noun} added!`,
           parsed.value,
         );
         navigation.goBack();
@@ -207,7 +448,20 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.form}>
+      {/* "handled": with the keyboard up, a tap on a category chip must pick
+          it, not just close the keyboard. */}
+      {/* Padding lives on the content, not the ScrollView: on the ScrollView
+          itself the bottom padding was not scrollable, so Save ended up half
+          hidden behind the tab bar. */}
+      <ScrollView
+        ref={scrollRef}
+        style={styles.form}
+        contentContainerStyle={[
+          styles.formContent,
+          { paddingBottom: FORM_BOTTOM_SPACE + keyboardHeight },
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Amount */}
         <View style={styles.field}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>
@@ -324,21 +578,40 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
               value={date}
               mode="date"
               display={Platform.OS === "ios" ? "spinner" : "default"}
-              // Bounds that always include the value being edited, so the
-              // Android picker cannot clamp and silently rewrite the date.
-              minimumDate={pickerMinimumDate(isEditing ? expense.date : null)}
+              // Any month up to today: past months take entries until they
+              // are closed. The bounds always include the value being edited,
+              // so the Android picker cannot clamp and silently rewrite it.
+              minimumDate={expensePickerMinimumDate(
+                isEditing ? expense.date : null,
+              )}
               maximumDate={pickerMaximumDate(isEditing ? expense.date : null)}
               onChange={(event, selectedDate) => {
                 setShowDatePicker(Platform.OS === "ios");
                 // Only a deliberate selection: Android also emits "dismissed".
-                if (event.type === "set" && selectedDate) setDate(selectedDate);
+                // A date in a closed month is refused and the old one kept.
+                if (
+                  event.type === "set" &&
+                  selectedDate &&
+                  !refuseClosedMonth(selectedDate)
+                ) {
+                  setDate(selectedDate);
+                }
               }}
             />
           )}
         </View>
 
-        {/* Remarks */}
+        {/* Payment mode: taps only, so it sits with Date, above the fields
+            that open the keyboard. */}
         <View style={styles.field}>
+          <Text style={[styles.label, { color: colors.textSecondary }]}>
+            Payment mode (optional)
+          </Text>
+          <PaymentModePicker value={payment} onChange={setPayment} />
+        </View>
+
+        {/* Remarks */}
+        <View style={styles.field} {...trackField("remarks")}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>
             Remarks
           </Text>
@@ -353,6 +626,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
             ]}
             value={remarks}
             onChangeText={setRemarks}
+            onFocus={() => focusField("remarks")}
             placeholder="Optional description"
             placeholderTextColor={colors.inputPlaceholder}
             multiline
@@ -361,7 +635,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         </View>
 
         {/* Category */}
-        <View style={styles.field}>
+        <View style={styles.field} {...trackField("category")}>
           <Text style={[styles.label, { color: colors.textSecondary }]}>
             Category
           </Text>
@@ -376,8 +650,15 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
             ]}
             value={category}
             onChangeText={setCategory}
+            onFocus={() => focusField("category")}
             placeholder="e.g., Food, Transport, Shopping"
             placeholderTextColor={colors.inputPlaceholder}
+          />
+          <CategoryChips
+            chips={chips}
+            selectedId={selectedId}
+            onPick={setCategory}
+            onRemove={handleRemoveCategory}
           />
         </View>
 
@@ -408,7 +689,8 @@ const styles = StyleSheet.create({
   },
   backButton: { padding: 4 },
   title: { fontSize: 18, fontWeight: "700" },
-  form: { padding: 16 },
+  form: { flex: 1 },
+  formContent: { padding: 16 },
   field: { marginBottom: 20 },
   label: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
   input: {

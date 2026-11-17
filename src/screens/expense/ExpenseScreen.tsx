@@ -1,4 +1,10 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useMemo,
+  useRef,
+} from "react";
 import {
   View,
   Text,
@@ -10,10 +16,12 @@ import {
   Alert,
   Modal,
   Pressable,
+  Keyboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { Avatar } from "../../components/ui";
 import { useTheme } from "../../contexts/ThemeContext";
 import { store, useAppSelector, useAppDispatch } from "../../store";
@@ -33,18 +41,62 @@ import {
   closeLedgerApi,
   deleteExpenseApi,
 } from "../../api/expenseApi";
-import { IExpense, IExpenseLedger } from "../../types";
+import {
+  ExpenseFilters,
+  ExpenseHomeParams,
+  IExpense,
+  IExpenseCategory,
+  IExpenseLedger,
+} from "../../types";
 import { cacheManager, CACHE_KEYS } from "../../utils/cacheManager";
 import { describeError } from "../../api/axios";
 import { CACHE_DURATION } from "../../constants/api";
 import { logger } from "../../utils/logger";
-import { pickInitialLedger, readCachedPage } from "../../utils/expenseLedger";
-import { formatDate } from "../../utils/dates";
+import {
+  pickInitialLedger,
+  readCachedPage,
+  shouldFollowCurrentMonth,
+} from "../../utils/expenseLedger";
+import { formatNumber } from "../../utils/money";
+import { withAlpha } from "../../utils/chartPalette";
+import {
+  categoryColorIndex,
+  categoryInitial,
+  dayKeyOf,
+  dayLabel,
+  dayTotals,
+  displayCategory,
+  localDayKey,
+  rowText,
+  startsNewDay,
+} from "../../utils/expenseList";
+import { EMPTY_EXPENSE_FILTERS } from "../../constants/expenseFilters";
+import {
+  activeChips,
+  activeFilterCount,
+  isFiltering,
+  removeChip,
+} from "../../utils/expenseFilters";
+import {
+  filtersFromReport,
+  isExpenseEditable,
+  ledgerMonthName,
+} from "../../utils/expenseSearchState";
+import {
+  readSavedCategories,
+  subscribeCategories,
+} from "../../utils/expenseCategorySync";
+import { useExpenseSearch } from "../../hooks/useExpenseSearch";
+import ExpenseSearchBar from "./ExpenseSearchBar";
+import ExpenseFilterSheet from "./ExpenseFilterSheet";
+import ActiveFilterRow from "./ActiveFilterRow";
 
 // Text/icons on coloured fills stay white; the theme has no on-primary token.
 const ON_ACCENT = "#FFFFFF";
+// Room under the last row so the + button (56 tall, 24 from the bottom) never covers it.
+const LIST_BOTTOM_SPACE = 96;
 
-const ExpenseScreen = ({ navigation }: any) => {
+const ExpenseScreen = ({ navigation, route }: any) => {
   const { theme } = useTheme();
   const { colors, spacing, borderRadius, fontSize, fontWeight } = theme;
   const dispatch = useAppDispatch();
@@ -56,6 +108,62 @@ const ExpenseScreen = ({ navigation }: any) => {
   const [refreshing, setRefreshing] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [showLedgerPicker, setShowLedgerPicker] = useState(false);
+  // True once a ledger request has finished, so the report link can tell
+  // "no ledgers" from "not loaded yet".
+  const [ledgersFetched, setLedgersFetched] = useState(false);
+
+  /**
+   * Search and filters. While anything is set, the list shows the search
+   * results instead of the month list; the month list, its cache and its
+   * Redux state stay as they are, so clearing shows them again at once.
+   */
+  const [filters, setFilters] = useState<ExpenseFilters>(
+    EMPTY_EXPENSE_FILTERS,
+  );
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [savedCategories, setSavedCategories] = useState<IExpenseCategory[]>(
+    [],
+  );
+  const filtering = isFiltering(filters);
+  const filterCount = activeFilterCount(filters);
+  const search = useExpenseSearch(filters, activeLedger?._id);
+  const monthName = ledgerMonthName(activeLedger);
+  const reportFilter = (route?.params as ExpenseHomeParams | undefined)
+    ?.filter;
+
+  /**
+   * While set, a ledger load keeps the selected month instead of jumping to
+   * the current one: during a search (the results would change under the
+   * user) and after the report opened a past month.
+   */
+  const holdLedgerRef = useRef(false);
+  /**
+   * The real-world month at the last successful ledger load (null until the
+   * first one), so a load can tell a month rollover from a past month the
+   * user picked. See `shouldFollowCurrentMonth`.
+   */
+  const lastSeenTodayRef = useRef<{ year: number; month: number } | null>(
+    null,
+  );
+  // Read by the focus callback, which is created once.
+  const filteringRef = useRef(false);
+  const reportFilterRef = useRef(reportFilter);
+  useEffect(() => {
+    filteringRef.current = filtering;
+    holdLedgerRef.current = filtering;
+  }, [filtering]);
+  useEffect(() => {
+    reportFilterRef.current = reportFilter;
+  }, [reportFilter]);
+
+  // The rows on screen: search results while filtering, else the month list.
+  const listData = filtering ? search.results : expenses;
+  // Day totals over the rows loaded so far; a day split across pages fills in
+  // as the next page arrives.
+  const totalsByDay = useMemo(() => dayTotals(listData), [listData]);
+  const todayKey = localDayKey();
+  const isLedgerOpen = activeLedger?.status === "open";
 
   /**
    * One trigger, not two.
@@ -75,6 +183,11 @@ const ExpenseScreen = ({ navigation }: any) => {
   useFocusEffect(
     useCallback(() => {
       void loadLedgers();
+      // Back from an edit: the results may have changed. A pending report
+      // link brings new filters, so the old ones aren't searched first.
+      if (filteringRef.current && !reportFilterRef.current) {
+        void search.refresh();
+      }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []),
   );
@@ -113,13 +226,18 @@ const ExpenseScreen = ({ navigation }: any) => {
 
       if (
         !isManualRefresh &&
+        !holdLedgerRef.current &&
         currentActiveLedger &&
-        (currentActiveLedger.year < currentYear ||
-          (currentActiveLedger.year === currentYear &&
-            currentActiveLedger.month < currentMonth)) &&
+        shouldFollowCurrentMonth(
+          currentActiveLedger,
+          { year: currentYear, month: currentMonth },
+          lastSeenTodayRef.current,
+        ) &&
         currentRealWorldLedger
       ) {
-        // Active ledger is from a past month and we are booting/focusing. Auto-navigate to the new current month ledger.
+        // Month rollover only: the past month is stale (from the cache or an
+        // earlier session) or it was "this month" until it just ended. A past
+        // month the user picked stays, e.g. after adding to it and coming back.
         dispatch(setActiveLedger(currentRealWorldLedger));
       } else if (currentActiveLedger && ledgerList.length > 0) {
         // Preserve current selection: find the updated version of the active ledger
@@ -133,9 +251,84 @@ const ExpenseScreen = ({ navigation }: any) => {
         // First load: default to current month
         dispatch(setActiveLedger(pickInitialLedger(ledgerList, now)));
       }
+      lastSeenTodayRef.current = { year: currentYear, month: currentMonth };
     } catch (error) {
       logger.error("Failed to load ledgers:", error);
+    } finally {
+      setLedgersFetched(true);
     }
+  };
+
+  /**
+   * The report's "Where it went" opens this list filtered to one category of
+   * one month. Once the ledgers are known: select that month (or search all
+   * months if it has no ledger), set the filters, and clear the param so it
+   * is applied once.
+   */
+  const ledgersReady = ledgers.length > 0 || ledgersFetched;
+  useEffect(() => {
+    if (!reportFilter || !ledgersReady) return;
+    const { ledger, filters: next } = filtersFromReport(reportFilter, ledgers);
+    if (ledger) {
+      // Set before the focus's ledger load lands, or it would jump a past
+      // month back to the current one.
+      holdLedgerRef.current = true;
+      if (ledger._id !== store.getState().expense.activeLedger?._id) {
+        dispatch(setActiveLedger(ledger));
+      }
+    }
+    setSearchOpen(false);
+    setFilters(next);
+    navigation.setParams({ filter: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportFilter, ledgersReady]);
+
+  // The filter sheet's category chips: the saved list, kept current.
+  useEffect(() => {
+    let alive = true;
+    let updated = false;
+    void readSavedCategories().then((saved) => {
+      // A newer copy from the listener wins over this read.
+      if (alive && !updated && saved) setSavedCategories(saved.categories);
+    });
+    const unsubscribe = subscribeCategories((cache) => {
+      updated = true;
+      setSavedCategories(cache?.categories ?? []);
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
+  }, []);
+
+  // Offline or a server error: say so; the rows already shown stay.
+  useEffect(() => {
+    if (search.error) Alert.alert("Could not search", search.error);
+  }, [search.error]);
+
+  /** Hides the search bar and drops its text; the other filters stay. */
+  const closeSearch = () => {
+    Keyboard.dismiss();
+    setSearchOpen(false);
+    setFilters((f) => (f.q ? { ...f, q: "" } : f));
+  };
+
+  const toggleSearch = () => {
+    if (searchOpen) closeSearch();
+    else setSearchOpen(true);
+  };
+
+  /** Back to the plain month list, which is still in memory: no request. */
+  const clearFilters = () => {
+    Keyboard.dismiss();
+    setSearchOpen(false);
+    setFilters(EMPTY_EXPENSE_FILTERS);
+  };
+
+  const handleSearchRefresh = async () => {
+    setRefreshing(true);
+    await search.refresh();
+    setRefreshing(false);
   };
 
   /**
@@ -222,7 +415,10 @@ const ExpenseScreen = ({ navigation }: any) => {
     loadExpenses(false).finally(() => setLoadingMore(false));
   };
 
-  const handleDelete = (expenseId: string) => {
+  const handleDelete = (expense: IExpense) => {
+    const expenseId = expense._id;
+    // Read now: the alert's callback runs after the user answers.
+    const fromResults = filtering;
     Alert.alert(
       "Delete Expense",
       "Are you sure you want to delete this expense?",
@@ -233,9 +429,13 @@ const ExpenseScreen = ({ navigation }: any) => {
           style: "destructive",
           onPress: async () => {
             try {
-              // Optimistic removal, then confirm with the server.
+              // Optimistic removal, then confirm with the server. The row is
+              // gone for good, so the month list drops it too if it has it.
               dispatch(removeExpense(expenseId));
+              if (fromResults) search.removeLocal(expenseId);
               await deleteExpenseApi(expenseId);
+              // Page 1 and the totals of the results, without the row.
+              if (fromResults) void search.refresh();
 
               /**
                * Invalidate the cache.
@@ -250,6 +450,14 @@ const ExpenseScreen = ({ navigation }: any) => {
                 cacheManager.remove(
                   CACHE_KEYS.EXPENSES(activeLedger?._id ?? ""),
                 ),
+                // A search result can be from another month.
+                ...(expense.ledgerId && expense.ledgerId !== activeLedger?._id
+                  ? [
+                      cacheManager.remove(
+                        CACHE_KEYS.EXPENSES(expense.ledgerId),
+                      ),
+                    ]
+                  : []),
                 cacheManager.remove(CACHE_KEYS.EXPENSE_LEDGERS),
                 cacheManager.remove(CACHE_KEYS.EXPENSE_STATS),
               ]);
@@ -259,6 +467,7 @@ const ExpenseScreen = ({ navigation }: any) => {
               Alert.alert("Could not delete", describeError(error));
               // Roll back by refetching the authoritative list.
               void loadExpenses(true);
+              if (fromResults) void search.refresh();
             }
           },
         },
@@ -318,15 +527,6 @@ const ExpenseScreen = ({ navigation }: any) => {
     );
   };
 
-  const isCurrentMonth = () => {
-    if (!activeLedger) return false;
-    const now = new Date();
-    return (
-      activeLedger.year === now.getFullYear() &&
-      activeLedger.month === now.getMonth() + 1
-    );
-  };
-
   const canCloseLedger = () => {
     if (!activeLedger) return false;
     if (activeLedger.status === "closed") return false;
@@ -343,28 +543,16 @@ const ExpenseScreen = ({ navigation }: any) => {
   const renderLedgerPicker = () => {
     if (ledgers.length === 0) return null;
 
-    const MONTH_NAMES = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
-
     return (
       <>
         <View
           style={[styles.ledgerPicker, { backgroundColor: colors.surface }]}
         >
-          <Text style={[styles.ledgerLabel, { color: colors.textSecondary }]}>
-            Ledger Period:
+          <Text
+            style={[styles.ledgerLabel, { color: colors.textSecondary }]}
+            numberOfLines={1}
+          >
+            Ledger period:
           </Text>
           <TouchableOpacity
             style={[
@@ -378,9 +566,12 @@ const ExpenseScreen = ({ navigation }: any) => {
               size={18}
               color={colors.primary}
             />
-            <Text style={[styles.ledgerButtonText, { color: colors.primary }]}>
+            <Text
+              style={[styles.ledgerButtonText, { color: colors.primary }]}
+              numberOfLines={1}
+            >
               {activeLedger
-                ? `${MONTH_NAMES[activeLedger.month - 1]} ${activeLedger.year.toString().slice(-2)}${activeLedger.status === "closed" ? " (Closed)" : ""}`
+                ? `${ledgerMonthName(activeLedger)}${activeLedger.status === "closed" ? " (Closed)" : ""}`
                 : "Select Ledger"}
             </Text>
             <Ionicons name="chevron-down" size={18} color={colors.primary} />
@@ -463,7 +654,7 @@ const ExpenseScreen = ({ navigation }: any) => {
                             },
                           ]}
                         >
-                          {`${MONTH_NAMES[item.month - 1]} ${item.year.toString().slice(-2)}`}
+                          {ledgerMonthName(item)}
                         </Text>
                       </View>
                       <View style={styles.ledgerOptionRight}>
@@ -528,10 +719,17 @@ const ExpenseScreen = ({ navigation }: any) => {
             ]}
           >
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              Total Debited
+              Money out
             </Text>
-            <Text style={[styles.statValue, { color: colors.debit }]}>
-              ₹{totalDebited.toFixed(2)}
+            {/* One line that shrinks to fit: a six-figure month must not
+                spill out of a half-width tile. */}
+            <Text
+              style={[styles.statValue, { color: colors.debit }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+            >
+              ₹{formatNumber(totalDebited)}
             </Text>
           </View>
           <View
@@ -541,10 +739,15 @@ const ExpenseScreen = ({ navigation }: any) => {
             ]}
           >
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>
-              Total Credited
+              Money in
             </Text>
-            <Text style={[styles.statValue, { color: colors.credit }]}>
-              ₹{totalCredited.toFixed(2)}
+            <Text
+              style={[styles.statValue, { color: colors.credit }]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.5}
+            >
+              ₹{formatNumber(totalCredited)}
             </Text>
           </View>
         </View>
@@ -553,123 +756,201 @@ const ExpenseScreen = ({ navigation }: any) => {
             textAlign: "center",
             fontSize: 13,
             color: colors.textSecondary,
-            marginTop: 6,
+            marginTop: 8,
           }}
+          numberOfLines={1}
         >
-          Net:{" "}
+          Net{" "}
           <Text
             style={{
               color: isSurplus ? colors.credit : colors.debit,
               fontWeight: "600",
+              fontVariant: ["tabular-nums"],
             }}
           >
-            {isSurplus ? "+" : ""}₹{Math.abs(net).toFixed(2)}
+            {isSurplus ? "+" : "−"}₹{formatNumber(Math.abs(net))}
           </Text>{" "}
-          {isSurplus ? "(Surplus)" : "(Deficit)"}
+          {isSurplus ? "surplus" : "deficit"}
         </Text>
       </View>
     );
   };
 
-  const renderTableHeader = () => (
-    <View style={[styles.tableHeader, { backgroundColor: colors.surface }]}>
-      <Text
-        style={[
-          styles.headerCell,
-          styles.dateCell,
-          { color: colors.textSecondary },
-        ]}
-      >
-        Date
-      </Text>
-      <Text
-        style={[
-          styles.headerCell,
-          styles.amountCell,
-          { color: colors.textSecondary },
-        ]}
-      >
-        Amount
-      </Text>
-      <Text
-        style={[
-          styles.headerCell,
-          styles.actionsCell,
-          { color: colors.textSecondary },
-        ]}
-      >
-        Actions
-      </Text>
-    </View>
-  );
+  /**
+   * One row of the grouped list, rendered from `list` (the month list or the
+   * search results) with `totals`, that list's day totals. The first row of
+   * each day carries that day's header and totals. While the month is open,
+   * a tap edits the row and a long-press deletes it (with the confirmation
+   * in `handleDelete`); in a closed month the rows are read-only, as the old
+   * edit/delete buttons were. Results can span months, so each result row
+   * checks its own month.
+   *
+   * Every text is one line with an ellipsis and the amount never shrinks, so
+   * a long remark or category can't push anything off the row.
+   */
+  const renderExpenseRow = (
+    list: IExpense[],
+    totals: ReturnType<typeof dayTotals>,
+    expense: IExpense,
+    index: number,
+  ) => {
+    const editable = filtering
+      ? isExpenseEditable(expense, ledgers)
+      : isLedgerOpen;
+    const isCredit = (expense.type || "debit") === "credit";
+    const category = displayCategory(expense.category);
+    const { title, subtitle } = rowText(expense);
+    const palette = colors.chart.categorical;
+    const tint = category
+      ? palette[categoryColorIndex(category, palette.length)]
+      : isCredit
+        ? colors.credit
+        : colors.textSecondary;
+    const dayKey = dayKeyOf(expense);
+    const day = startsNewDay(list, index) ? totals[dayKey] : null;
+    const amountText = `${isCredit ? "+" : "−"}₹${formatNumber(expense.amount)}`;
 
-  const renderExpenseRow = ({ item: expense }: { item: IExpense }) => (
-    <View
-      style={[
-        styles.row,
-        { backgroundColor: colors.surface, borderBottomColor: colors.border },
-      ]}
-    >
-      {/* First Line: Date, Amount, Actions */}
-      <View style={styles.rowTop}>
-        <Text style={[styles.cell, styles.dateCell, { color: colors.text }]}>
-          {formatDate(expense.date, "DD MMM")}
-        </Text>
-        <Text
-          style={[
-            styles.cell,
-            styles.amountCell,
-            {
-              color:
-                (expense.type || "debit") === "credit"
-                  ? colors.credit
-                  : colors.debit,
-            },
-          ]}
-        >
-          {(expense.type || "debit") === "credit" ? "+" : "-"}₹
-          {expense.amount.toFixed(2)}
-        </Text>
-        <View style={styles.actionsCell}>
-          {activeLedger?.status === "open" && (
-            <>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate("AddEditExpense", { expense })
+    return (
+      <View>
+        {day && (
+          <View style={styles.dayHeader}>
+            <Text
+              style={[styles.dayLabel, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {dayLabel(dayKey, todayKey)}
+            </Text>
+            <Text
+              style={[styles.dayTotal, { color: colors.textSecondary }]}
+              numberOfLines={1}
+            >
+              {day.debit > 0 ? `−₹${formatNumber(day.debit)}` : ""}
+              {day.debit > 0 && day.credit > 0 ? "  " : ""}
+              {day.credit > 0 ? (
+                <Text style={{ color: colors.credit }}>
+                  +₹{formatNumber(day.credit)}
+                </Text>
+              ) : null}
+            </Text>
+          </View>
+        )}
+        <Pressable
+          onPress={
+            editable
+              ? () => navigation.navigate("AddEditExpense", { expense })
+              : undefined
+          }
+          onLongPress={
+            editable
+              ? () => {
+                  void Haptics.impactAsync(
+                    Haptics.ImpactFeedbackStyle.Medium,
+                  ).catch(() => {});
+                  handleDelete(expense);
                 }
-                style={styles.actionButton}
-              >
-                <Ionicons
-                  name="create-outline"
-                  size={18}
-                  color={colors.primary}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => handleDelete(expense._id)}
-                style={styles.actionButton}
-              >
-                <Ionicons
-                  name="trash-outline"
-                  size={18}
-                  color={colors.danger}
-                />
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </View>
-      {/* Second Line: Remarks */}
-      {expense.remarks && (
-        <Text
-          style={[styles.remarksText, { color: colors.textSecondary }]}
-          numberOfLines={2}
+              : undefined
+          }
+          disabled={!editable}
+          style={({ pressed }) => [
+            styles.row,
+            pressed && { backgroundColor: colors.surface },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`${title}${subtitle ? `, ${subtitle}` : ""}, ${amountText}`}
+          accessibilityHint={
+            editable
+              ? "Opens the expense to edit. Long-press to delete it."
+              : undefined
+          }
         >
-          {expense.remarks}
+          <View
+            style={[styles.avatar, { backgroundColor: withAlpha(tint, 0.16) }]}
+          >
+            {category ? (
+              <Text style={[styles.avatarText, { color: tint }]}>
+                {categoryInitial(category)}
+              </Text>
+            ) : (
+              <Ionicons
+                name={isCredit ? "arrow-down" : "wallet-outline"}
+                size={18}
+                color={tint}
+              />
+            )}
+          </View>
+          <View style={styles.rowText}>
+            <Text
+              style={[styles.rowTitle, { color: colors.text }]}
+              numberOfLines={1}
+            >
+              {title}
+            </Text>
+            {subtitle && (
+              <Text
+                style={[styles.rowSubtitle, { color: colors.textSecondary }]}
+                numberOfLines={1}
+              >
+                {subtitle}
+              </Text>
+            )}
+          </View>
+          <Text
+            style={[
+              styles.rowAmount,
+              { color: isCredit ? colors.credit : colors.text },
+            ]}
+            numberOfLines={1}
+          >
+            {amountText}
+          </Text>
+        </Pressable>
+      </View>
+    );
+  };
+
+  /** The results list when it is empty: still searching, failed, or no match. */
+  const renderSearchEmpty = () => {
+    if (search.loading) {
+      return (
+        <ActivityIndicator
+          size="large"
+          color={colors.primary}
+          style={styles.loader}
+        />
+      );
+    }
+    const failed = search.error !== null;
+    return (
+      <View style={styles.emptyState}>
+        <Ionicons
+          name={failed ? "cloud-offline-outline" : "search-outline"}
+          size={64}
+          color={colors.textSecondary}
+        />
+        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+          {failed ? "Could not load results" : "No expenses match."}
         </Text>
-      )}
-    </View>
-  );
+        <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
+          {failed ? "Pull down to try again." : "Try fewer filters."}
+        </Text>
+        <TouchableOpacity
+          style={[
+            styles.clearFiltersButton,
+            { backgroundColor: colors.primarySurface },
+          ]}
+          onPress={clearFilters}
+          accessibilityRole="button"
+        >
+          <Text
+            style={[styles.clearFiltersText, { color: colors.primary }]}
+            numberOfLines={1}
+          >
+            Clear filters
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView
@@ -687,8 +968,52 @@ const ExpenseScreen = ({ navigation }: any) => {
             },
           ]}
         >
-          <Text style={[styles.title, { color: colors.text }]}>Expenses</Text>
+          <Text
+            style={[styles.title, { color: colors.text }]}
+            numberOfLines={1}
+          >
+            Expenses
+          </Text>
           <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={toggleSearch}
+              style={styles.headerButton}
+              accessibilityRole="button"
+              accessibilityLabel="Search expenses"
+              accessibilityState={{ expanded: searchOpen }}
+            >
+              <Ionicons
+                name="search-outline"
+                size={24}
+                color={colors.primary}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowFilterSheet(true)}
+              style={styles.headerButton}
+              accessibilityRole="button"
+              accessibilityLabel="Filter expenses"
+              accessibilityValue={
+                filterCount > 0 ? { text: `${filterCount} active` } : undefined
+              }
+            >
+              <Ionicons
+                name="options-outline"
+                size={24}
+                color={colors.primary}
+              />
+              {filterCount > 0 && (
+                <View
+                  style={[
+                    styles.filterDot,
+                    {
+                      backgroundColor: colors.primary,
+                      borderColor: colors.surface,
+                    },
+                  ]}
+                />
+              )}
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => navigation.navigate("ExpenseStats")}
               style={styles.headerButton}
@@ -731,20 +1056,46 @@ const ExpenseScreen = ({ navigation }: any) => {
           </TouchableOpacity>
         )}
 
-        {/* Expense List */}
+        {searchOpen && (
+          <ExpenseSearchBar
+            value={filters.q}
+            onChangeText={(q) => setFilters((f) => ({ ...f, q }))}
+            onClose={closeSearch}
+            autoFocus
+          />
+        )}
+        {filtering && (
+          <ActiveFilterRow
+            chips={activeChips(filters, monthName)}
+            onRemove={(key) => setFilters((f) => removeChip(f, key))}
+            onClearAll={clearFilters}
+            summary={search.summary}
+            loading={search.loading}
+          />
+        )}
+
+        {/* Expense List: the search results while filtering */}
         <FlatList
-          data={expenses}
+          data={listData}
           keyExtractor={(item) => item._id}
-          renderItem={renderExpenseRow}
-          ListHeaderComponent={renderTableHeader}
-          stickyHeaderIndices={[0]}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          renderItem={({ item, index }) =>
+            renderExpenseRow(listData, totalsByDay, item, index)
           }
-          onEndReached={handleLoadMore}
+          contentContainerStyle={{ paddingBottom: LIST_BOTTOM_SPACE }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={filtering ? handleSearchRefresh : handleRefresh}
+            />
+          }
+          onEndReached={filtering ? search.loadMore : handleLoadMore}
           onEndReachedThreshold={0.3}
           ListEmptyComponent={
-            txLoading ? (
+            filtering ? (
+              renderSearchEmpty()
+            ) : txLoading ? (
               <ActivityIndicator
                 size="large"
                 color={colors.primary}
@@ -771,7 +1122,7 @@ const ExpenseScreen = ({ navigation }: any) => {
             )
           }
           ListFooterComponent={
-            loadingMore ? (
+            (filtering ? search.loadingMore : loadingMore) ? (
               <ActivityIndicator
                 size="small"
                 color={colors.primary}
@@ -781,9 +1132,10 @@ const ExpenseScreen = ({ navigation }: any) => {
           }
         />
 
-        {/* FAB - Show for current month (even if no ledger exists) */}
-        {(!activeLedger ||
-          (isCurrentMonth() && activeLedger?.status === "open")) && (
+        {/* FAB - Show for any open month (and before any ledger exists); a
+            closed month is read-only. `period` lets the Add screen start a
+            past month on its last day. */}
+        {(!activeLedger || activeLedger.status === "open") && (
           <TouchableOpacity
             style={[
               styles.fab,
@@ -792,12 +1144,24 @@ const ExpenseScreen = ({ navigation }: any) => {
             onPress={() =>
               navigation.navigate("AddEditExpense", {
                 ledgerId: activeLedger?._id,
+                period: activeLedger
+                  ? { year: activeLedger.year, month: activeLedger.month }
+                  : undefined,
               })
             }
           >
             <Ionicons name="add" size={28} color={ON_ACCENT} />
           </TouchableOpacity>
         )}
+
+        <ExpenseFilterSheet
+          visible={showFilterSheet}
+          initial={filters}
+          categories={savedCategories}
+          monthName={monthName}
+          onApply={setFilters}
+          onClose={() => setShowFilterSheet(false)}
+        />
       </View>
     </SafeAreaView>
   );
@@ -813,19 +1177,33 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  title: { fontSize: 20, fontWeight: "700" },
-  headerActions: { flexDirection: "row", gap: 12 },
+  // The title gives way first, so the four header actions always fit.
+  title: { flexShrink: 1, fontSize: 20, fontWeight: "700" },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 12 },
   headerButton: { padding: 4 },
+  // Marks the filter icon while any filter is set.
+  filterDot: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1.5,
+  },
   ledgerPicker: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
   },
-  ledgerLabel: { fontSize: 14, fontWeight: "600" },
+  // On a narrow screen the label ellipsizes; the month button keeps its size.
+  ledgerLabel: { flexShrink: 1, fontSize: 14, fontWeight: "600" },
   ledgerButton: {
+    flexShrink: 0,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -841,12 +1219,20 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   statCard: {
-    padding: 4,
-    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
     alignItems: "center",
   },
   statLabel: { fontSize: 12, fontWeight: "600" },
-  statValue: { fontSize: 24, fontWeight: "700", marginTop: 4 },
+  statValue: {
+    alignSelf: "stretch",
+    textAlign: "center",
+    fontSize: 24,
+    fontWeight: "700",
+    marginTop: 4,
+    fontVariant: ["tabular-nums"],
+  },
   closeLedgerButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -859,41 +1245,48 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   closeLedgerText: { fontSize: 14, fontWeight: "600" },
-  tableHeader: {
+  dayHeader: {
     flexDirection: "row",
-    paddingVertical: 15,
-    paddingHorizontal: 16,
-    borderBottomWidth: 2,
-    borderTopWidth: 1,
-    alignItems: "center",
+    alignItems: "baseline",
     justifyContent: "space-between",
-  },
-  headerCell: { fontSize: 12, fontWeight: "900", textTransform: "uppercase" },
-  row: {
-    paddingVertical: 12,
+    gap: 12,
     paddingHorizontal: 16,
-    borderBottomWidth: 1,
+    paddingTop: 18,
+    paddingBottom: 6,
   },
-  rowTop: {
+  dayLabel: { flexShrink: 1, fontSize: 13, fontWeight: "700" },
+  dayTotal: {
+    flexShrink: 0,
+    fontSize: 12,
+    fontWeight: "600",
+    fontVariant: ["tabular-nums"],
+  },
+  row: {
     flexDirection: "row",
     alignItems: "center",
-    // justifyContent: "space-between",
+    gap: 12,
+    minHeight: 60,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
   },
-  cell: { fontSize: 14 },
-  dateCell: { flex: 1, fontWeight: "600" },
-  amountCell: { flex: 2, fontWeight: "700", textAlign: "center" },
-  actionsCell: {
-    flexDirection: "row",
-    gap: 8,
-    width: 70,
-    justifyContent: "flex-end",
+  avatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  actionButton: { padding: 4 },
-  remarksText: {
-    fontSize: 13,
-    marginTop: 6,
-    paddingLeft: 0,
-    fontStyle: "italic",
+  avatarText: { fontSize: 15, fontWeight: "700" },
+  // minWidth 0 lets the text column shrink and ellipsize instead of pushing
+  // the amount off the row.
+  rowText: { flex: 1, minWidth: 0 },
+  rowTitle: { fontSize: 15, fontWeight: "500" },
+  rowSubtitle: { fontSize: 12, marginTop: 2 },
+  rowAmount: {
+    flexShrink: 0,
+    fontSize: 15,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
   },
   emptyState: { alignItems: "center", paddingVertical: 48 },
   emptyText: { fontSize: 16, marginTop: 12 },
@@ -903,6 +1296,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 32,
   },
+  clearFiltersButton: {
+    marginTop: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  clearFiltersText: { fontSize: 14, fontWeight: "600" },
   loader: { marginVertical: 20 },
   fab: {
     position: "absolute",

@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=360,initial-scale=1">
+<title>Finzz ledger</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=block" rel="stylesheet">
+<link rel="stylesheet" href="kit.css">
+<style>
+/* page-local: ChatScreen.tsx styles (RN flex column) */
+.screen{display:flex;flex-direction:column}
+.hdr{display:flex;align-items:center;padding:12px 16px;gap:12px;flex:none}
+.back{width:40px;height:40px;margin-left:-8px;display:flex;align-items:center;justify-content:center;border-radius:20px;color:var(--primary)}
+.hname{flex:1;font-size:var(--fs-lg);font-weight:700;letter-spacing:-.3px;color:var(--text)}
+.hbtn{width:40px;height:40px;border-radius:20px;background:var(--primary-surface);display:flex;align-items:center;justify-content:center;color:var(--primary)}
+.ms{display:flex;align-items:center;background:var(--surface);border:.5px solid var(--border);border-radius:var(--r-lg);margin:8px 16px;padding:4px;flex:none}
+.ms .arr{width:44px;height:44px;display:flex;align-items:center;justify-content:center;color:var(--text)}
+.ms .arr.dis{opacity:.3}
+.ms .ctr{flex:1;min-height:44px;display:flex;align-items:center;justify-content:center;gap:8px}
+.ms .ctr .ct{display:flex;flex-direction:column;align-items:center}
+.ms .lbl{font-size:var(--fs-lg);font-weight:600;color:var(--text)}
+.ms .cap{font-size:var(--fs-xs);color:var(--text-secondary);margin-top:1px}
+.stats{margin-bottom:7px;flex:none}
+.card{margin:0 16px;padding:16px;border-radius:20px;border:1px solid var(--separator);background:var(--surface-secondary);box-shadow:0 2px 8px rgba(0,0,0,.05)}
+.srow{display:flex;justify-content:space-around;align-items:center}
+.si{display:flex;flex-direction:column;align-items:center;flex:1}
+.sdiv{width:1px;height:40px;background:var(--border);margin:0 8px}
+.sl{font-size:10px;font-weight:600;text-align:center;letter-spacing:.5px;text-transform:uppercase;color:var(--text-secondary)}
+.sv{font-size:var(--fs-lg);font-weight:800;letter-spacing:-.5px}
+.ss{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.dl{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 0;border-radius:14px;border:1px solid color-mix(in srgb,var(--primary) 19%,transparent);background:color-mix(in srgb,var(--primary) 7%,transparent);margin:10px 16px 0;color:var(--primary);font-size:13px;font-weight:700}
+.tbl{flex:1;border-radius:24px 24px 0 0;overflow:hidden;padding:0 6px;position:relative}
+.th{display:flex;padding:12px 16px;background:var(--surface-secondary);border-bottom:.5px solid var(--separator)}
+.th span{font-weight:700;font-size:12px;letter-spacing:.5px;text-transform:uppercase;color:var(--text-secondary)}
+.cd{width:70px;min-width:60px}.ca{flex:1;min-width:60px;padding-right:4px;text-align:center}.cs{width:75px;min-width:70px;display:flex;align-items:center;justify-content:center}
+.tr{padding:14px 12px;border-bottom:.5px solid var(--separator-light);display:flex;flex-direction:column;gap:6px}
+.tr.cf{background:color-mix(in srgb,var(--surface-secondary) 25%,transparent)}
+.rm{display:flex;align-items:center}
+.rt{font-size:13px;font-weight:500}
+.rf{display:flex;justify-content:space-between;align-items:center;margin-top:2px}
+.rem{font-size:11px;font-style:italic;flex:1;color:var(--text-secondary)}
+.by{font-size:10px;margin-left:8px;color:var(--text-tertiary)}
+.vb{padding:4px 8px;border-radius:12px;font-size:10px;font-weight:600}
+.fab{position:absolute;right:20px;bottom:24px;width:56px;height:56px;border-radius:28px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 4px rgba(0,0,0,.25);z-index:5}
+</style>
+</head><body>
+<div id="statusbar"></div>
+<main class="screen">
+  <div class="hdr">
+    <div class="back"><i data-ion="chevron-back"></i></div>
+    <span class="avatar" data-name="Rohan Mehta" data-size="36"></span>
+    <div class="hname">Rohan Mehta</div>
+    <div class="hbtn"><i data-ion="bar-chart-outline" style="font-size:18px"></i></div>
+  </div>
+
+  <div class="ms">
+    <div class="arr"><i data-ion="chevron-back" style="font-size:22px"></i></div>
+    <div class="ctr">
+      <i data-ion="calendar-outline" style="font-size:20px;color:var(--primary)"></i>
+      <div class="ct"><span class="lbl">November 2026</span><span class="cap">4 transactions</span></div>
+      <i data-ion="chevron-down" style="font-size:16px;color:var(--text-secondary)"></i>
+    </div>
+    <div class="arr dis"><i data-ion="chevron-forward" style="font-size:22px"></i></div>
+  </div>
+
+  <div class="stats">
+    <div class="card"><div class="srow">
+      <div class="si"><span class="sl">Sent (This Month)</span><span class="sv" style="color:var(--debit)" id="sent"></span></div>
+      <div class="sdiv"></div>
+      <div class="si"><span class="sl">Received (This Month)</span><span class="sv" style="color:var(--credit)" id="recv"></span></div>
+      <div class="sdiv"></div>
+      <div class="si"><span class="sl">Total</span><span class="sv" style="color:var(--debit)" id="tot"></span><span class="ss" style="color:var(--debit)">To pay</span></div>
+    </div></div>
+    <div class="dl"><i data-ion="document-text-outline" style="font-size:16px"></i><span>View report</span></div>
+  </div>
+
+  <div class="tbl">
+    <div class="th"><div class="cd"><span>Date</span></div><div class="ca"><span>Gave</span></div><div class="ca"><span>Received</span></div><div class="cs"><span>Status</span></div></div>
+    <div id="rows"></div>
+  </div>
+  <div class="fab"><i data-ion="add" style="font-size:28px"></i></div>
+</main>
+<nav id="tabbar" data-active="Chats"></nav>
+<script src="icons.js"></script><script src="kit.js"></script>
+<script>
+var R=[
+ {d:"11/11/26",amt:220,credit:true,st:"actions",rem:"Auto fare",by:"Rohan Mehta"},
+ {d:"09/11/26",amt:3000,credit:false,st:"pending",rem:"Concert tickets",by:"You"},
+ {d:"06/11/26",amt:480,credit:true,st:"ok",rem:"Coffee and snacks",by:"Rohan Mehta"},
+ {d:"02/11/26",amt:1320,credit:false,st:"ok",rem:"Groceries",by:"You"},
+ {d:"Past",amt:4960,credit:true,st:"info",rem:"last month Accounts",cf:true}
+];
+var h="";
+R.forEach(function(r){
+ var g=!r.credit?Finzz.inr(r.amt):"-", c=r.credit?Finzz.inr(r.amt):"-", s;
+ if(r.st=="ok")s='<i data-ion="checkmark-circle" style="font-size:18px;color:var(--verified)"></i>';
+ else if(r.st=="info")s='<i data-ion="information-circle-outline" style="font-size:18px;color:var(--text-tertiary)"></i>';
+ else if(r.st=="pending")s='<i data-ion="time-outline" style="font-size:18px;color:var(--text-tertiary)"></i>';
+ else s='<div style="display:flex;gap:6px"><span class="vb" style="background:var(--success-light);color:var(--verified)">✓</span><span class="vb" style="background:color-mix(in srgb,var(--danger) 12.5%,transparent);color:var(--danger)">✗</span></div>';
+ h+='<div class="tr'+(r.cf?' cf':'')+'"><div class="rm"><div class="cd"><span class="rt">'+r.d+'</span></div><div class="ca"><span class="rt" style="color:var(--debit)">'+g+'</span></div><div class="ca"><span class="rt" style="color:var(--credit)">'+c+'</span></div><div class="cs">'+s+'</div></div><div class="rf"><span class="rem">'+r.rem+'</span>'+(r.cf?'':'<span class="by">Added by '+r.by+'</span>')+'</div></div>';
+});
+document.getElementById("rows").innerHTML=h;
+document.getElementById("sent").textContent=Finzz.inr(4320);
+document.getElementById("recv").textContent=Finzz.inr(700);
+document.getElementById("tot").textContent=Finzz.inr(1340);
+Finzz.icons();
+</script>
+</body></html>

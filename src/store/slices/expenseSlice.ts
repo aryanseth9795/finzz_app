@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { IExpense, IExpenseLedger, IExpenseStats } from "../../types";
+import { insertByDate } from "../../utils/expenseList";
 
 interface ExpenseState {
   expenses: IExpense[];
@@ -58,7 +59,17 @@ const expenseSlice = createSlice({
       state.txLoading = false;
     },
     addExpense: (state, action: PayloadAction<IExpense>) => {
-      state.expenses = [action.payload, ...state.expenses];
+      const expense = action.payload;
+      // The server files an expense under its date's month, which may not be
+      // the month on screen; listing it here would show it (and count it in
+      // the day totals) under the wrong month until the next refetch.
+      if (state.activeLedger && expense.ledgerId !== state.activeLedger._id) {
+        return;
+      }
+      // In its date's place, not on top: back-dated rows are normal, and on
+      // top one would draw a second header for its day. Also drops a row
+      // already listed with the same _id.
+      state.expenses = insertByDate(state.expenses, expense, state.hasMore);
     },
     updateExpense: (
       state,
@@ -67,9 +78,21 @@ const expenseSlice = createSlice({
       const { oldId, expense } = action.payload;
       const searchId = oldId || expense._id;
       const index = state.expenses.findIndex((e) => e._id === searchId);
-      if (index !== -1) {
-        state.expenses[index] = expense;
+      if (index === -1) return;
+      // A new date can move the expense to another month's ledger: drop it
+      // from this month's list rather than keep it under the wrong month.
+      if (state.activeLedger && expense.ledgerId !== state.activeLedger._id) {
+        state.expenses.splice(index, 1);
+        return;
       }
+      // Re-placed by date, so a new date within the month re-sorts the row.
+      // insertByDate drops the old row by _id itself; a different oldId (a
+      // temp row) is dropped here.
+      const rest =
+        searchId === expense._id
+          ? state.expenses
+          : state.expenses.filter((e) => e._id !== searchId);
+      state.expenses = insertByDate(rest, expense, state.hasMore);
     },
     removeExpense: (state, action: PayloadAction<string>) => {
       state.expenses = state.expenses.filter((e) => e._id !== action.payload);

@@ -8,6 +8,11 @@ export interface IUser {
   avatar?: string;
   email?: string;
   emailVerified?: boolean;
+  /**
+   * Version of this user's expense category list. Missing on accounts whose
+   * list was never filled; 0 means filled and empty.
+   */
+  expenseCategoriesVersion?: number;
 }
 
 export interface AuthResponse {
@@ -217,9 +222,15 @@ export interface IExpense {
   date: string;
   remarks?: string;
   category?: string;
+  // How it was paid; method only when the mode is online. Absent on old rows.
+  paymentMode?: PaymentMode;
+  paymentMethod?: PaymentMethod;
   createdAt: string;
   updatedAt: string;
 }
+
+export type PaymentMode = "cash" | "online";
+export type PaymentMethod = "upi" | "card" | "netbanking" | "wallet" | "other";
 
 export interface IExpenseLedger {
   _id: string;
@@ -371,4 +382,86 @@ export interface INotesPage {
   notes: INote[];
   nextCursor: string | null;
   hasMore: boolean;
+}
+
+// ========================
+// Expense Category Types
+// ========================
+export type ExpenseCategoryType = "debit" | "credit";
+
+/** One saved category suggestion, as returned by GET /expenses/categories. */
+export interface IExpenseCategory {
+  _id: string;
+  name: string;
+  type: ExpenseCategoryType;
+}
+
+/** The phone's saved copy of the list, keyed by the server version it matches. */
+export interface ExpenseCategoriesCache {
+  version: number;
+  categories: IExpenseCategory[];
+}
+
+/** Category fields the server may add to an add/edit expense reply. */
+export interface ExpenseCategoryReply {
+  category?: IExpenseCategory;
+  categoriesVersion?: number;
+}
+
+// ========================
+// Expense Search Types
+// ========================
+
+/**
+ * Search and filter state of the Expenses list. Amounts stay as the typed
+ * text so the inputs keep exactly what the user entered; they are parsed
+ * when the query is built.
+ */
+export interface ExpenseFilters {
+  q: string;
+  type: "all" | "debit" | "credit";
+  /** Category names, matched case- and space-insensitively on the server. */
+  categories: string[];
+  /** Expenses with no category (the report's "Other"). */
+  uncategorized: boolean;
+  minAmount: string;
+  maxAmount: string;
+  /** "month": the selected ledger month; "all": every month. */
+  scope: "month" | "all";
+}
+
+/** Count and totals of everything a search matches, not just the loaded page. */
+export interface ExpenseSearchSummary {
+  count: number;
+  debitTotal: number;
+  creditTotal: number;
+}
+
+/** One removable chip in the active-filter row. */
+export interface ExpenseFilterChip {
+  key: string;
+  label: string;
+  /**
+   * False for an informational chip with no remove action (the month a
+   * month-scoped search covers). Defaults to true.
+   */
+  removable?: boolean;
+}
+
+/**
+ * Route params of ExpenseHome. The report's "Where it went" opens the list
+ * filtered to one category of one month.
+ */
+export interface ExpenseHomeParams {
+  filter?: {
+    year: number;
+    month: number;
+    category?: string;
+    uncategorized?: boolean;
+    /**
+     * The report's categories are built from money out only, so a tap there
+     * passes "debit" and the list matches the report's numbers.
+     */
+    type?: "debit" | "credit";
+  };
 }

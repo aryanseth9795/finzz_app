@@ -16,23 +16,11 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar, Button } from "../../components/ui";
-import {
-  uploadAvatarApi,
-  logoutApi,
-  changePasswordApi,
-} from "../../api/authApi";
+import { uploadAvatarApi, changePasswordApi } from "../../api/authApi";
 import { tokenManager } from "../../utils/tokenManager";
-import { cacheManager } from "../../utils/cacheManager";
-import {
-  clearPushRegistrationState,
-  getCurrentPushToken,
-  waitForPushRegistrationIdle,
-} from "../../hooks/useNotifications";
+import { signOutOnThisDevice } from "../../services/signOut";
 import { useAppSelector, useAppDispatch } from "../../store";
-import {
-  updateAvatar,
-  logout as logoutAction,
-} from "../../store/slices/authSlice";
+import { updateAvatar } from "../../store/slices/authSlice";
 
 const AccountScreen = ({ navigation }: any) => {
   const { theme, toggleTheme, isDark } = useTheme();
@@ -84,50 +72,7 @@ const AccountScreen = ({ navigation }: any) => {
       {
         text: "Logout",
         style: "destructive",
-        onPress: async () => {
-          /**
-           * Tell the server first, then clear locally.
-           *
-           * The server needs two things this device holds: the refresh token,
-           * so it revokes only THIS device's grant rather than every session;
-           * and the push token, so notifications for this account stop being
-           * delivered here. Without the second, the device kept receiving the
-           * previous user's transaction notifications — including counterparty
-           * names and amounts — after somebody else signed in.
-           *
-           * The local teardown runs regardless: if the network call fails the
-           * user must still end up signed out on this device, and the server
-           * grant expires on its own.
-           */
-          // Let any in-flight push registration finish first, so a late upload
-          // cannot re-attach this token to the account being signed out.
-          await waitForPushRegistrationIdle();
-
-          const [refreshToken, pushToken] = await Promise.all([
-            tokenManager.getRefreshToken(),
-            getCurrentPushToken(),
-          ]);
-
-          try {
-            await logoutApi({ refreshToken, pushToken });
-          } catch {
-            // Best effort — proceed with the local sign-out either way.
-          }
-
-          // Forget the uploaded push token so the next sign-in re-uploads.
-          // Must never block sign-out.
-          try {
-            await clearPushRegistrationState();
-          } catch {
-            // Ignore — local sign-out proceeds regardless.
-          }
-
-          await tokenManager.clearAll();
-          await cacheManager.clearAll();
-          // The root reducer resets every slice on this action, so the next
-          // account cannot see the previous user's chats, balances or ledger.
-          dispatch(logoutAction());
-        },
+        onPress: () => signOutOnThisDevice(dispatch, { notifyServer: true }),
       },
     ]);
   };
@@ -460,6 +405,22 @@ const AccountScreen = ({ navigation }: any) => {
           </Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          onPress={() => navigation.navigate("DeleteAccount")}
+          style={styles.deleteLink}
+          accessibilityRole="button"
+          activeOpacity={0.6}
+        >
+          <Text
+            style={[
+              styles.deleteLinkText,
+              { color: colors.danger, fontSize: fs.sm },
+            ]}
+          >
+            Delete account
+          </Text>
+        </TouchableOpacity>
+
         <Text
           style={[
             styles.version,
@@ -695,6 +656,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   logoutText: { fontWeight: "700" },
+  deleteLink: { alignSelf: "center", marginTop: 16, padding: 8 },
+  deleteLinkText: { fontWeight: "600", opacity: 0.8 },
   version: { textAlign: "center", marginTop: 24, opacity: 0.5 },
   // Modal styles
   modalContainer: { flex: 1 },

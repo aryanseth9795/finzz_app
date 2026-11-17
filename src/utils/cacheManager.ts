@@ -105,5 +105,6 @@ export const CACHE_KEYS = {
   EXPENSES: (ledgerId: string) => `expenses_${ledgerId}`,
   EXPENSE_LEDGERS: "expense_ledgers",
   EXPENSE_STATS: "expense_stats",
+  EXPENSE_CATEGORIES: "expense_categories",
   NOTIFICATIONS: "notifications",
 };

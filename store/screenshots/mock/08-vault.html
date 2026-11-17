@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=360,initial-scale=1">
+<title>Vault</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=block" rel="stylesheet">
+<link rel="stylesheet" href="kit.css">
+<style>
+.hdr{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.hdr .t{font-size:20px;font-weight:700}.hdr .a{display:flex;gap:18px;color:var(--primary)}
+.chips{display:flex;gap:8px;padding:12px 16px}
+.chip{display:flex;align-items:center;gap:6px;padding:8px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);font-size:14px;font-weight:600}
+.chip.on{background:var(--primary);color:#fff}
+.search{display:flex;align-items:center;gap:8px;margin:0 16px;padding:0 12px;border-radius:10px;border:1px solid var(--border);background:var(--surface);color:var(--text-tertiary)}
+.search span{font-size:15px;padding:10px 0;line-height:20px}
+.list{padding:16px;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;align-items:center;padding:14px;border-radius:12px;border:1px solid var(--border);background:var(--surface);gap:4px}
+.rt{font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rs{font-size:13px;margin-top:2px;color:var(--text-secondary)}
+.ib{padding:8px;color:var(--primary);display:flex}
+.fab{position:absolute;bottom:24px;right:24px;width:56px;height:56px;border-radius:28px;background:var(--primary);color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 6px rgba(0,0,0,.25)}
+</style></head><body>
+<div id="statusbar"></div>
+<main class="screen">
+<div class="hdr"><div class="t">Vault</div><div class="a"><i data-ion="settings-outline"></i><i data-ion="lock-closed-outline"></i></div></div>
+<div class="chips"><div class="chip on">All</div><div class="chip"><i data-ion="add" style="font-size:16px;color:var(--primary)"></i></div></div>
+<div class="search"><i data-ion="search" style="font-size:18px"></i><span>Search</span></div>
+<div class="list"><div class="row"><div style="flex:1;min-width:0"><div class="rt">Personal email</div><div class="rs">Email: aarav.kapoor@example.com</div></div><span class="ib"><i data-ion="person-outline" style="font-size:20px"></i></span><span class="ib"><i data-ion="key-outline" style="font-size:20px"></i></span></div><div class="row"><div style="flex:1;min-width:0"><div class="rt">Bank login</div><div class="rs">Customer ID: 4•••••21</div></div><span class="ib"><i data-ion="person-outline" style="font-size:20px"></i></span><span class="ib"><i data-ion="key-outline" style="font-size:20px"></i></span></div><div class="row"><div style="flex:1;min-width:0"><div class="rt">Flat 302 Wi-Fi</div><div class="rs">Network: Flat302_5G</div></div><span class="ib"><i data-ion="person-outline" style="font-size:20px"></i></span><span class="ib"><i data-ion="key-outline" style="font-size:20px"></i></span></div><div class="row"><div style="flex:1;min-width:0"><div class="rt">Streaming</div><div class="rs">Username: aarav_k</div></div><span class="ib"><i data-ion="person-outline" style="font-size:20px"></i></span><span class="ib"><i data-ion="key-outline" style="font-size:20px"></i></span></div></div>
+<div class="fab"><i data-ion="add" style="font-size:28px"></i></div>
+</main>
+<nav id="tabbar" data-active="Vault"></nav>
+<script src="icons.js"></script><script src="kit.js"></script>
+</body></html>

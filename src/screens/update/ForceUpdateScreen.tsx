@@ -5,13 +5,15 @@ import {
   TouchableOpacity,
   ScrollView,
   StyleSheet,
-  Linking,
   BackHandler,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { AppRelease } from "../../utils/version";
+import { isPlayStoreUrl, resolveUpdateUrl } from "../../utils/storeLink";
+import { updateChannel } from "../../utils/distribution";
+import { openUpdateLink } from "../../utils/openUpdateLink";
 
 interface Props {
   release: AppRelease;
@@ -23,6 +25,8 @@ const ForceUpdateScreen = ({ release, installedVersion }: Props) => {
   const { theme } = useTheme();
   const { colors } = theme;
   const [error, setError] = useState<string | null>(null);
+  const url = resolveUpdateUrl(release.apkUrl, updateChannel());
+  const isPlay = isPlayStoreUrl(url);
 
   // Hardware back must not escape the gate.
   useEffect(() => {
@@ -32,14 +36,18 @@ const ForceUpdateScreen = ({ release, installedVersion }: Props) => {
 
   const download = async () => {
     setError(null);
-    if (!release.apkUrl) {
+    if (!url) {
       setError("The download link isn't available yet. Please try again later.");
       return;
     }
     try {
-      await Linking.openURL(release.apkUrl);
+      await openUpdateLink(url);
     } catch {
-      setError("Couldn't open the download link. Check that a browser is installed.");
+      setError(
+        isPlay
+          ? "Couldn't open Google Play. Please update Finzz from the Play Store app."
+          : "Couldn't open the download link. Check that a browser is installed.",
+      );
     }
   };
 
@@ -74,8 +82,14 @@ const ForceUpdateScreen = ({ release, installedVersion }: Props) => {
           onPress={download}
           accessibilityRole="button"
         >
-          <Ionicons name="download-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.buttonText}>Download update</Text>
+          <Ionicons
+            name={isPlay ? "logo-google-playstore" : "download-outline"}
+            size={20}
+            color="#FFFFFF"
+          />
+          <Text style={styles.buttonText}>
+            {isPlay ? "Update on Google Play" : "Download update"}
+          </Text>
         </TouchableOpacity>
 
         {error ? (
@@ -83,8 +97,9 @@ const ForceUpdateScreen = ({ release, installedVersion }: Props) => {
         ) : null}
 
         <Text style={[styles.help, { color: colors.textTertiary }]}>
-          After the download finishes, open it and tap Install. If Android asks,
-          allow installing from your browser. Then reopen Finzz.
+          {isPlay
+            ? "Google Play will install the update. Then reopen Finzz."
+            : "After the download finishes, open it and tap Install. If Android asks, allow installing from your browser. Then reopen Finzz."}
         </Text>
       </ScrollView>
     </SafeAreaView>

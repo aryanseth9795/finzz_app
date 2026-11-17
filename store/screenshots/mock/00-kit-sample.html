@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=360,initial-scale=1">
+<title>Kit sample</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=block" rel="stylesheet">
+<link rel="stylesheet" href="kit.css">
+<style>
+.hdr{height:56px;background:var(--header-bg);display:flex;align-items:center;padding:0 var(--sp-lg);border-bottom:.5px solid var(--border);font-size:var(--fs-xl);font-weight:var(--fw-bold)}
+.hdr i{margin-left:auto;color:var(--header-tint)}
+.card{display:flex;align-items:center;gap:var(--sp-md);background:var(--card);border:1px solid var(--card-border);border-radius:var(--r-lg);margin:var(--sp-md) var(--sp-lg) 0;padding:var(--sp-md) var(--sp-lg);box-shadow:var(--shadow-card)}
+.card .n{font-size:var(--fs-lg);font-weight:var(--fw-semibold)}.card .s{font-size:var(--fs-sm);color:var(--text-secondary)}
+.card .a{margin-left:auto;font-weight:var(--fw-bold);color:var(--credit)}.card .a.d{color:var(--debit)}
+</style></head><body>
+<div id="statusbar"></div>
+<main class="screen">
+<div class="hdr">Chats <i data-ion="search-outline"></i></div>
+<div class="card"><span class="avatar" data-name="Rohan Mehta" data-size="56"></span><div><div class="n">Rohan Mehta</div><div class="s"><i data-ion="checkmark-done" style="font-size:14px;color:var(--verified)"></i> Dinner split</div></div><div class="a" id="a1"></div></div>
+<div class="card"><span class="avatar" data-name="Priya Nair" data-size="56"></span><div><div class="n">Priya Nair</div><div class="s">Cab to airport</div></div><div class="a d" id="a2"></div></div>
+</main>
+<nav id="tabbar" data-active="Chats"></nav>
+<script src="icons.js"></script><script src="kit.js"></script>
+<script>document.getElementById("a1").textContent=Finzz.inr(124500);document.getElementById("a2").textContent=Finzz.inr(12450);</script>
+</body></html>

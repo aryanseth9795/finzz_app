@@ -25,7 +25,18 @@ export interface MonthSelectorProps {
   selected: { year: number; month: number };
   onChange: (ym: { year: number; month: number }) => void;
   loading?: boolean; // show a small ActivityIndicator in place of the caption
+  /**
+   * Enable every month in `months` in the year grid, even one with a zero
+   * count (counts then only drive the caption and badges). Use when counts are
+   * partial. Default false: only months with transactions, plus the current
+   * month, can be picked.
+   */
+  enableAllMonths?: boolean;
 }
+
+// The month label may shrink this far before it ellipsizes (large text, narrow
+// screens). At normal text size it fits, so nothing changes.
+const LABEL_MIN_SCALE = 0.8;
 
 // Text on the primary fill is white in both themes (primary is the same
 // indigo in light and dark; textInverse flips to near-black in dark mode).
@@ -37,6 +48,7 @@ const MonthSelector: React.FC<MonthSelectorProps> = ({
   selected,
   onChange,
   loading = false,
+  enableAllMonths = false,
 }) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs, borderRadius: br, spacing } = theme;
@@ -48,8 +60,11 @@ const MonthSelector: React.FC<MonthSelectorProps> = ({
   );
   const next = useMemo(() => stepMonth(months, selected, 1), [months, selected]);
   // Recomputed each time the sheet opens so the "current month" marker is fresh.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const grid = useMemo(() => yearGrid(months, new Date()), [months, sheetOpen]);
+  const grid = useMemo(
+    () => yearGrid(months, new Date(), { enableAllMonths }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [months, sheetOpen, enableAllMonths],
+  );
 
   const selectedCount = useMemo(() => {
     const m = months.find((x) => isSameMonth(x, selected));
@@ -139,6 +154,8 @@ const MonthSelector: React.FC<MonthSelectorProps> = ({
           <View style={styles.centerText}>
             <Text
               numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={LABEL_MIN_SCALE}
               style={[styles.label, { color: colors.text, fontSize: fs.lg }]}
             >
               {monthLabel(selected, "long")}

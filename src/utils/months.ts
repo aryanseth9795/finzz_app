@@ -41,6 +41,36 @@ export const currentYearMonth = (now: Date): YearMonth => ({
   month: now.getMonth() + 1,
 });
 
+/** `ym` moved by `delta` months (negative = earlier), across year boundaries. */
+export const addMonths = (ym: YearMonth, delta: number): YearMonth => {
+  const idx = ym.year * 12 + (ym.month - 1) + Math.trunc(delta);
+  return { year: Math.floor(idx / 12), month: (((idx % 12) + 12) % 12) + 1 };
+};
+
+/** The `count` months ending at (and including) `end`, newest first. */
+export const monthsEndingAt = (end: YearMonth, count: number): YearMonth[] =>
+  Array.from(
+    { length: Number.isFinite(count) ? Math.max(0, Math.floor(count)) : 0 },
+    (_, i) => addMonths(end, -i),
+  );
+
+/**
+ * Per-month counts (keyed by monthKey) after a reply that covers the `span`
+ * months ending at `end`. A month with no rows is absent from such a reply, so
+ * every month in the window is first reset to 0, then `fresh` is applied.
+ * Months outside the window keep their previous counts.
+ */
+export const mergeWindowCounts = (
+  prev: Record<string, number>,
+  end: YearMonth,
+  span: number,
+  fresh: Record<string, number>,
+): Record<string, number> => {
+  const out: Record<string, number> = { ...prev };
+  for (const ym of monthsEndingAt(end, span)) out[monthKey(ym)] = 0;
+  return Object.assign(out, fresh);
+};
+
 export const sortMonthsDesc = <T extends YearMonth>(months: T[]): T[] =>
   [...months].sort((a, b) => ordinal(b) - ordinal(a));
 
@@ -75,9 +105,20 @@ export interface MonthCell {
   isCurrent: boolean;
 }
 
+export interface YearGridOptions {
+  /**
+   * Enable every month listed in `months`, even one with a zero count, for
+   * callers whose counts are partial (they then only drive the badges).
+   * Default false: a month is enabled only when it has transactions or is the
+   * current month. Unlisted months stay disabled either way (except current).
+   */
+  enableAllMonths?: boolean;
+}
+
 export const yearGrid = (
   months: IAvailableMonth[],
   now: Date,
+  { enableAllMonths = false }: YearGridOptions = {},
 ): { year: number; cells: MonthCell[] }[] => {
   const current = currentYearMonth(now);
   const counts = new Map(months.map((m) => [monthKey(m), m.txCount]));
@@ -88,9 +129,12 @@ export const yearGrid = (
       year,
       cells: MONTH_SHORT.map((_, i) => {
         const month = i + 1;
-        const count = counts.get(monthKey({ year, month })) ?? 0;
+        const key = monthKey({ year, month });
+        const count = counts.get(key) ?? 0;
         const isCurrent = isSameMonth({ year, month }, current);
-        return { month, count, enabled: count > 0 || isCurrent, isCurrent };
+        const enabled =
+          count > 0 || isCurrent || (enableAllMonths && counts.has(key));
+        return { month, count, enabled, isCurrent };
       }),
     }));
 };
