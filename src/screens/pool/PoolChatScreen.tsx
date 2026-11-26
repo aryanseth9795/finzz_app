@@ -31,8 +31,8 @@ import {
 } from "../../api/poolApi";
 import PoolTxDetailsSheet from "../../components/pool/PoolTxDetailsSheet";
 import {
-  latestPoolTxFromError,
   poolTxActions,
+  poolTxRefusal,
   poolTxStatusOf,
 } from "../../utils/poolTx";
 import { describeError } from "../../api/axios";
@@ -189,14 +189,24 @@ const PoolChatScreen = ({ route, navigation }: any) => {
   };
 
   /**
-   * After a refused change the server sends its latest copy of the entry
-   * (409 changed, 400 already reviewed): show that version instead of the
-   * stale one, so the member looks again before acting.
+   * A refused change usually means this phone's row is stale:
+   * - the reply carries the latest entry (403 verified meanwhile, 409 changed,
+   *   400 already reviewed): show that version so the member looks again;
+   * - 404: it was deleted (or this member left): drop the row and the sheet.
+   * Returns true when the row was refreshed or removed.
    */
-  const showLatestFrom = (error: unknown) => {
-    const latest = latestPoolTxFromError(error);
-    if (latest) dispatch(updatePoolTx(latest));
-    return latest;
+  const applyRefusal = (error: unknown, tx: IPoolTx): boolean => {
+    const refusal = poolTxRefusal(error);
+    if (refusal.kind === "stale") {
+      dispatch(updatePoolTx(refusal.latest));
+    } else if (refusal.kind === "gone") {
+      dispatch(removePoolTx(tx._id));
+      setSelectedId(null);
+    } else {
+      return false;
+    }
+    void fetchStats();
+    return true;
   };
 
   /**
@@ -217,11 +227,10 @@ const PoolChatScreen = ({ route, navigation }: any) => {
       setSelectedId(null);
       showSuccessToast(action === "verify" ? "Entry verified!" : "Entry rejected");
     } catch (error) {
-      const latest = showLatestFrom(error);
-      if (latest) void fetchStats();
+      const changed = applyRefusal(error, tx);
       showErrorToast(
         describeError(error),
-        latest
+        changed
           ? "This entry changed"
           : action === "verify"
             ? "Could not verify"
@@ -255,8 +264,11 @@ const PoolChatScreen = ({ route, navigation }: any) => {
       void fetchStats();
       showSuccessToast("Entry deleted");
     } catch (error) {
-      showLatestFrom(error);
-      showErrorToast(describeError(error), "Could not delete");
+      const changed = applyRefusal(error, tx);
+      showErrorToast(
+        describeError(error),
+        changed ? "This entry changed" : "Could not delete",
+      );
     } finally {
       setBusy(false);
     }

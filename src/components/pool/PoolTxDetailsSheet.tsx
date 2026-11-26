@@ -155,6 +155,15 @@ const PoolTxDetailsSheet: React.FC<PoolTxDetailsSheetProps> = ({
     };
   }, [tx, meId, members, poolClosed]);
 
+  const handleRequestClose = () => {
+    if (rejecting) {
+      setRejecting(false);
+      setRemark("");
+      return;
+    }
+    onClose();
+  };
+
   if (!tx || !derived) {
     return (
       <Modal visible={false} transparent animationType="slide" onRequestClose={onClose}>
@@ -289,13 +298,19 @@ const PoolTxDetailsSheet: React.FC<PoolTxDetailsSheetProps> = ({
           <Text style={{ color: colors.textTertiary, fontSize: fontSize.xs, textAlign: "right" }}>
             {`${remark.length}/${REJECT_REMARK_MAX}`}
           </Text>
-          {renderButton("send-reject", "Reject entry", "danger", () =>
-            onReject(tx, remark.trim()),
-          )}
-          {renderButton("cancel-reject", "Cancel", "plain", () => {
-            setRejecting(false);
-            setRemark("");
-          })}
+          <View style={[styles.rowButtons, { gap: spacing.md }]}>
+            <View style={styles.rowButton}>
+              {renderButton("cancel-reject", "Cancel", "plain", () => {
+                setRejecting(false);
+                setRemark("");
+              })}
+            </View>
+            <View style={styles.rowButton}>
+              {renderButton("send-reject", "Reject entry", "danger", () =>
+                onReject(tx, remark.trim()),
+              )}
+            </View>
+          </View>
         </View>
       );
     }
@@ -328,8 +343,16 @@ const PoolTxDetailsSheet: React.FC<PoolTxDetailsSheetProps> = ({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={[styles.overlay, { backgroundColor: colors.overlay }]} onPress={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={handleRequestClose}
+    >
+      <Pressable
+        style={[styles.overlay, { backgroundColor: colors.overlay }]}
+        onPress={handleRequestClose}
+      >
         <Pressable
           style={[
             styles.sheet,
@@ -390,6 +413,7 @@ const PoolTxDetailsSheet: React.FC<PoolTxDetailsSheetProps> = ({
             </TouchableOpacity>
           </View>
 
+          {!rejecting && (
           <ScrollView
             style={styles.scroll}
             showsVerticalScrollIndicator={false}
@@ -485,6 +509,7 @@ const PoolTxDetailsSheet: React.FC<PoolTxDetailsSheetProps> = ({
               })}
             </View>
           </ScrollView>
+          )}
 
           {footer()}
         </Pressable>
@@ -526,6 +551,8 @@ const styles = StyleSheet.create({
   line: { width: 2, flex: 1, marginTop: 2 },
   tlBody: { flex: 1, marginLeft: 8 },
   actions: { flexDirection: "column" },
+  rowButtons: { flexDirection: "row" },
+  rowButton: { flex: 1 },
   input: {
     borderWidth: 1,
     minHeight: 72,

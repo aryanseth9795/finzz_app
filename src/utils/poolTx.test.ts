@@ -6,6 +6,8 @@ import {
   poolTxTimeline,
   latestPoolTxFromError,
   isPoolTxConflict,
+  poolTxRefusal,
+  remarksPatch,
 } from "./poolTx";
 import { routeForNotification } from "./notificationRoute";
 
@@ -173,5 +175,39 @@ describe("pool_tx_rejected notification", () => {
       name: "Pool",
       params: { screen: "PoolList" },
     });
+  });
+});
+
+describe("poolTxRefusal", () => {
+  it("stale when the reply carries the latest entry (403 verified, 409, 400)", () => {
+    const latest = tx({ status: "verified", verified: true });
+    for (const status of [400, 403, 409]) {
+      expect(poolTxRefusal({ response: { status, data: { poolTx: latest } } })).toEqual({
+        kind: "stale",
+        latest,
+      });
+    }
+  });
+  it("gone on 404 (deleted from another phone, or I left the pool)", () => {
+    expect(poolTxRefusal({ response: { status: 404, data: {} } })).toEqual({ kind: "gone" });
+  });
+  it("other for network errors and plain 4xx/5xx", () => {
+    expect(poolTxRefusal(new Error("Network Error"))).toEqual({ kind: "other" });
+    expect(poolTxRefusal({ response: { status: 500 } })).toEqual({ kind: "other" });
+    expect(poolTxRefusal(null)).toEqual({ kind: "other" });
+  });
+});
+
+describe("remarksPatch", () => {
+  it("sends nothing when the remark is unchanged", () => {
+    expect(remarksPatch("share", "share")).toEqual({});
+    expect(remarksPatch("share", "  share  ")).toEqual({});
+    expect(remarksPatch(undefined, "")).toEqual({});
+    expect(remarksPatch("", "   ")).toEqual({});
+  });
+  it("sends the new remark, or an empty string to clear it", () => {
+    expect(remarksPatch("share", "villa")).toEqual({ remarks: "villa" });
+    expect(remarksPatch("share", "  ")).toEqual({ remarks: "" });
+    expect(remarksPatch(undefined, "fuel")).toEqual({ remarks: "fuel" });
   });
 });

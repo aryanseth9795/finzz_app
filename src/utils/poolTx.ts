@@ -91,3 +91,30 @@ export const isPoolTxConflict = (error: unknown): boolean =>
  */
 export const latestPoolTxFromError = (error: unknown): IPoolTx | null =>
   (error as PoolTxError | null | undefined)?.response?.data?.poolTx ?? null;
+
+export type PoolTxRefusal =
+  | { kind: "stale"; latest: IPoolTx } // show this version instead
+  | { kind: "gone" } // 404: deleted, or no longer a member
+  | { kind: "other" };
+
+/** What a refused review / edit / delete means for the row on screen. */
+export const poolTxRefusal = (error: unknown): PoolTxRefusal => {
+  const latest = latestPoolTxFromError(error);
+  if (latest) return { kind: "stale", latest };
+  if ((error as PoolTxError | null | undefined)?.response?.status === 404) {
+    return { kind: "gone" };
+  }
+  return { kind: "other" };
+};
+
+/**
+ * The `remarks` field of an edit: only when it changed ("" clears it), so an
+ * untouched remark is never re-validated or rewritten.
+ */
+export const remarksPatch = (
+  original: string | undefined,
+  edited: string,
+): { remarks?: string } => {
+  const next = edited.trim();
+  return next === (original ?? "").trim() ? {} : { remarks: next };
+};

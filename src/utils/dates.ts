@@ -86,7 +86,8 @@ export const pickerMaximumDate = (existing?: Date | string | null): Date => {
  * An expense may go into any past month whose ledger is not closed (a month
  * with no ledger yet is created open), so the picker is no longer capped at
  * the 1st of the current month. The floor matches the server's accepted year
- * range, which starts at 2000. Chat and Pool keep `pickerMinimumDate`.
+ * range, which starts at 2000. Chat keeps `pickerMinimumDate`; pools have no
+ * monthly close and allow any past date (T-029).
  *
  * Do not mutate; `expensePickerMinimumDate` hands out copies.
  */

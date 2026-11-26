@@ -15,7 +15,11 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
 import { useDialog } from "../../contexts/DialogContext";
-import { isPoolTxConflict, poolTxStatusOf } from "../../utils/poolTx";
+import {
+  poolTxRefusal,
+  poolTxStatusOf,
+  remarksPatch,
+} from "../../utils/poolTx";
 import { SafeAreaWrapper } from "../../components/ui";
 import {
   addPoolTxApi,
@@ -88,8 +92,8 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
       if (isEditing) {
         await editPoolTxApi(txn._id, {
           ...payload,
-          // "" clears a remark; undefined would leave the old one in place.
-          remarks: remarks.trim(),
+          // Only a changed remark is sent ("" clears it).
+          ...remarksPatch(txn.remarks, remarks),
           // The version this form was opened on: a change made meanwhile
           // (a verify, or an edit from another phone) gives 409.
           expectedUpdatedAt: txn.updatedAt,
@@ -112,8 +116,9 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
       );
       navigation.goBack();
     } catch (error) {
-      if (isEditing && isPoolTxConflict(error)) {
-        // The pool screen refetches on focus and shows the latest version.
+      if (isEditing && poolTxRefusal(error).kind !== "other") {
+        // Verified, changed or deleted meanwhile: the pool screen refetches
+        // on focus and shows the latest version.
         showErrorToast(describeError(error), "Someone just changed this entry");
         navigation.goBack();
         return;
@@ -365,6 +370,8 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
               placeholderTextColor={colors.textTertiary}
               value={remarks}
               onChangeText={setRemarks}
+              // The server caps pool remarks at 200 characters.
+              maxLength={200}
               multiline
               numberOfLines={3}
               textAlignVertical="top"
