@@ -93,3 +93,10 @@ describe("dialog actions", () => {
     expect(dialogTone(normalizeActions(undefined), "warning")).toBe("warning");
   });
 });
+
+describe("dialog backdrop opt-out (review)", () => {
+  it("keeps Android back = cancel but ignores the backdrop when asked", () => {
+    const acts = normalizeActions([{ label: "Later", style: "cancel" }, { label: "Update" }]);
+    expect(dismissPlan(acts, { backdrop: false })).toEqual({ backIndex: 0, backdropIndex: null });
+  });
+});

@@ -29,6 +29,7 @@ export function useAppUpdates() {
 
         // Show alert to restart app
         showDialog({
+      dismissOnBackdrop: false,
           title: "Update Available",
           message:
             "A new version of the app has been downloaded. Would you like to restart now to apply the update?",

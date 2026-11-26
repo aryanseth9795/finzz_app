@@ -40,6 +40,8 @@ export interface DialogOptions {
   tone?: DialogTone;
   /** Override the icon, or null for no icon (menus). */
   icon?: keyof typeof Ionicons.glyphMap | null;
+  /** false: a tap outside does nothing (Android back still cancels). Default true. */
+  dismissOnBackdrop?: boolean;
 }
 
 export interface ConfirmOptions {
@@ -102,12 +104,17 @@ export const DialogProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     [showDialog],
   );
 
+  // A fast double tap must answer a dialog once, not also the next one queued.
+  const handledKeys = useRef(new Set<number>());
+
   /**
    * Close the current dialog first, then run the action. An action that opens
    * another dialog (a menu item leading to a confirm) queues behind nothing
    * and shows straight away.
    */
   const handleAction = useCallback((key: number, action: NormalizedAction<DialogAction>) => {
+    if (handledKeys.current.has(key)) return;
+    handledKeys.current.add(key);
     setQueue((q) => (q[0]?.key === key ? q.slice(1) : q));
     try {
       const result = action.onPress?.();

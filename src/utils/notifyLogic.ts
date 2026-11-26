@@ -60,13 +60,18 @@ export function normalizeActions<T extends DialogActionInput>(
  * - A single-button acknowledgement closes on back, but a stray tap on the
  *   backdrop must not count as "read".
  * - A choice with no cancel can't be dismissed by accident.
+ * - `backdrop: false` keeps back = cancel but ignores stray outside taps
+ *   (the optional update prompt: a stray tap must not skip that version).
  */
-export function dismissPlan(actions: readonly NormalizedAction[]): {
+export function dismissPlan(
+  actions: readonly NormalizedAction[],
+  { backdrop = true }: { backdrop?: boolean } = {},
+): {
   backIndex: number | null;
   backdropIndex: number | null;
 } {
   const cancel = actions.findIndex((a) => a.style === "cancel");
-  if (cancel !== -1) return { backIndex: cancel, backdropIndex: cancel };
+  if (cancel !== -1) return { backIndex: cancel, backdropIndex: backdrop ? cancel : null };
   if (actions.length === 1) return { backIndex: 0, backdropIndex: null };
   return { backIndex: null, backdropIndex: null };
 }

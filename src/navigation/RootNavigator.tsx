@@ -64,6 +64,7 @@ const RootNavigator = () => {
       updateChannel(),
     );
     showDialog({
+      dismissOnBackdrop: false,
       title: "Update available",
       message: `Finzz v${gate.optionalVersion} is available.`,
       actions: [

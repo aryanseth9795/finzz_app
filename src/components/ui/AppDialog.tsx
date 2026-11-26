@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { ToastHost } from "../../contexts/ToastContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import Button from "./Button";
 import type { DialogAction, QueuedDialog } from "../../contexts/DialogContext";
@@ -58,7 +60,7 @@ const AppDialog: React.FC<Props> = ({ dialog, onAction }) => {
   if (!shown) return null;
 
   const { actions } = shown;
-  const plan = dismissPlan(actions);
+  const plan = dismissPlan(actions, { backdrop: shown.dismissOnBackdrop !== false });
   const layout = layoutActions(actions);
   const tone = dialogTone(actions, shown.tone);
   const toneColor = {
@@ -79,6 +81,9 @@ const AppDialog: React.FC<Props> = ({ dialog, onAction }) => {
 
   const fire = (index: number | null) => {
     if (!dialog || index === null) return;
+    if (actions[index].style === "destructive") {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => undefined);
+    }
     onAction(dialog.key, actions[index]);
   };
 
@@ -139,6 +144,11 @@ const AppDialog: React.FC<Props> = ({ dialog, onAction }) => {
             })}
           </View>
         </Animated.View>
+        {/* The dialog is its own Android window: a toast raised while it is
+            open (e.g. a launch error behind "Update available") is drawn here.
+            Mounted only while a dialog is up, so the root host takes over as
+            soon as it closes. */}
+        {dialog ? <ToastHost /> : null}
       </View>
     </Modal>
   );
