@@ -82,7 +82,9 @@ const OnboardingScreen = ({ navigation, route }: any) => {
   const finish = (target: "Register" | "Login" | null) => {
     void markOnboardingSeenDefault(); // fire and forget, never blocks navigation
     if (fromLink) {
-      if (target) navigation.navigate(target);
+      // popTo, not navigate: navigate pushes a second Login/Register on top of
+      // the one the link was opened from, and Back would land on the carousel.
+      if (target) navigation.popTo(target);
       else navigation.goBack();
       return;
     }

@@ -12,7 +12,12 @@ export const siteUrlCandidates = (path: string): string[] => {
   return SITE_ORIGINS.map((origin) => `${origin}${path}`);
 };
 
-/** First candidate whose probe resolves true within timeoutMs, else the last one. */
+/**
+ * First candidate whose probe resolves true within timeoutMs, else the PRIMARY.
+ * Not the last: the fallback origin (aryantechie.in) lapses in Dec 2026, and a
+ * phone that never takes a later OTA must not be sent to an expired domain
+ * just because it was offline.
+ */
 export const pickReachableUrl = async (
   candidates: readonly string[],
   probe: Probe,
@@ -35,7 +40,7 @@ export const pickReachableUrl = async (
       if (timer) clearTimeout(timer);
     }
   }
-  return candidates[candidates.length - 1];
+  return candidates[0];
 };
 
 export const headProbe: Probe = async (url, signal) => {
@@ -43,9 +48,31 @@ export const headProbe: Probe = async (url, signal) => {
   return res.status >= 200 && res.status < 400;
 };
 
-export const openSitePage = async (path: string): Promise<void> => {
-  const url = await pickReachableUrl(siteUrlCandidates(path), headProbe);
+/**
+ * Opener with one probe at a time: taps while a probe runs (up to 4 s per
+ * host) are ignored, so a double tap opens one browser tab, and a failure to
+ * open never becomes an unhandled rejection.
+ */
+export const createSiteOpener = (
+  probe: Probe,
+  open: (url: string) => Promise<void>,
+): ((path: string) => Promise<void>) => {
+  let busy = false;
+  return async (path: string) => {
+    if (busy) return;
+    busy = true;
+    try {
+      await open(await pickReachableUrl(siteUrlCandidates(path), probe));
+    } catch (e) {
+      console.warn("[siteLinks] could not open", path, e);
+    } finally {
+      busy = false;
+    }
+  };
+};
+
+export const openSitePage = createSiteOpener(headProbe, async (url) => {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { Linking } = require("react-native");
   await Linking.openURL(url);
-};
+});

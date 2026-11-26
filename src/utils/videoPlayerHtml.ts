@@ -50,6 +50,7 @@ video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:contain;b
     try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: t })); } catch (e) {}
   }
   v.addEventListener("error", function () { send("error"); });
+  v.addEventListener("loadedmetadata", function () { send("loadedmetadata"); });
   v.addEventListener("playing", function () { send("playing"); });
   v.addEventListener("ended", function () { send("ended"); });
 })();

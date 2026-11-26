@@ -12,11 +12,25 @@ export interface KeyValueStorage {
  * than nag or block a returning user whose storage is flaky. It is replayable
  * from the login screen, so nothing is lost.
  */
-export const hasSeenOnboarding = async (storage: KeyValueStorage): Promise<boolean> => {
+export const hasSeenOnboarding = async (
+  storage: KeyValueStorage,
+  timeoutMs = 1500,
+): Promise<boolean> => {
+  // A read that never settles counts as seen too: AuthStack renders nothing
+  // until this answers, so a hang would be a blank screen with no way out.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => resolve(true), timeoutMs);
+  });
   try {
-    return (await storage.getItem(ONBOARDING_SEEN_KEY)) != null;
+    return await Promise.race([
+      storage.getItem(ONBOARDING_SEEN_KEY).then((v) => v != null),
+      timeout,
+    ]);
   } catch {
     return true;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 };
 

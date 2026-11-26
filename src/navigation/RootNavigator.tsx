@@ -36,6 +36,7 @@ import { useForceUpdate } from "../hooks/useForceUpdate";
 import ForceUpdateScreen from "../screens/update/ForceUpdateScreen";
 import { navigationRef } from "./navigationRef";
 import AuthStack from "./AuthStack";
+import { markOnboardingSeenDefault } from "../utils/onboarding";
 import MainTabs from "./MainTabs";
 import EmailVerifyModal from "../components/EmailVerifyModal";
 
@@ -47,6 +48,14 @@ const RootNavigator = () => {
   const { isAuthenticated, initializing, user } = useAppSelector(
     (state) => state.auth,
   );
+
+  // Anyone who has signed in on this device isn't new: don't show them the
+  // first-launch tour when they log out (existing 1.2.0 users after the OTA
+  // have no flag yet). It stays one tap away on Landing/Login/Register.
+  useEffect(() => {
+    if (isAuthenticated) void markOnboardingSeenDefault();
+  }, [isAuthenticated]);
+
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [emailModalDismissed, setEmailModalDismissed] = useState(false);
 

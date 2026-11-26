@@ -112,3 +112,10 @@ describe("isAllowedVideoRequest", () => {
     }
   });
 });
+
+describe("buildVideoHtml liveness (review R6)", () => {
+  it("reports loadedmetadata, so a slow but working host isn't abandoned at the timeout", () => {
+    const html = buildVideoHtml("https://finzz.aryanseth.in/videos/finzz-teaser-9x16.mp4");
+    expect(html).toContain('addEventListener("loadedmetadata"');
+  });
+});

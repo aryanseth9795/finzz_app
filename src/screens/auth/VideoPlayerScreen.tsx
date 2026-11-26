@@ -88,11 +88,17 @@ const VideoPlayerScreen = ({ route, navigation }: any) => {
     } catch {
       return;
     }
-    if (type === "playing") {
+    if (type === "playing" || type === "loadedmetadata") {
+      // loadedmetadata = this host is serving a real video. Stop the load
+      // timer and drop the overlay so the <video> controls are reachable even
+      // if autoplay doesn't start; a slow 28 MB download is not a failure.
       playingRef.current = true;
       setState("playing");
     } else if (type === "error") {
-      fail();
+      // After the video started, a stream error can't be fixed by switching
+      // host mid-way: show the error state (Retry starts over).
+      if (playingRef.current) setState("error");
+      else fail();
     }
     // "ended": keep the player so the user can replay with the controls.
   }, [fail]);
@@ -169,7 +175,10 @@ const VideoPlayerScreen = ({ route, navigation }: any) => {
         )}
 
         {state === "loading" && (
-          <View style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: "#000" }]}>
+          <View
+            pointerEvents="none"
+            style={[StyleSheet.absoluteFill, styles.center, { backgroundColor: "#000" }]}
+          >
             <Image source={video.poster} style={styles.poster} resizeMode="contain" />
             <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
           </View>

@@ -76,3 +76,15 @@ describe("isLastPage", () => {
     expect(isLastPage(0, 1)).toBe(true);
   });
 });
+
+describe("hasSeenOnboarding timeout (review R2)", () => {
+  it("counts a storage read that never settles as seen, so the auth stack never stays blank", async () => {
+    const hanging = { getItem: () => new Promise<string | null>(() => {}), setItem: async () => {} };
+    await expect(hasSeenOnboarding(hanging, 20)).resolves.toBe(true);
+  });
+
+  it("still answers false quickly on a fresh install", async () => {
+    const fresh = { getItem: async () => null, setItem: async () => {} };
+    await expect(hasSeenOnboarding(fresh, 20)).resolves.toBe(false);
+  });
+});
