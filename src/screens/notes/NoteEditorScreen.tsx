@@ -14,12 +14,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, usePreventRemove } from "@react-navigation/native";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import Avatar from "../../components/ui/Avatar";
 import { describeError } from "../../api/axios";
@@ -68,6 +68,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
   const { showSuccessToast, showErrorToast } = useToast();
+  const { confirm, showDialog } = useDialog();
   const dispatch = useAppDispatch();
   const me = useAppSelector((s) => s.auth.user?._id) ?? "";
 
@@ -147,18 +148,17 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
 
   // ---------------------------------------------------------------- leaving
 
-  usePreventRemove(dirty && !leaving, ({ data }) => {
-    Alert.alert("Discard changes?", "Your unsaved edits will be lost.", [
-      { text: "Keep editing", style: "cancel" },
-      {
-        text: "Discard",
-        style: "destructive",
-        onPress: () => {
-          pendingActionRef.current = data.action;
-          setLeaving(true);
-        },
-      },
-    ]);
+  usePreventRemove(dirty && !leaving, async ({ data }) => {
+    const discard = await confirm({
+      title: "Discard changes?",
+      message: "Your unsaved edits will be lost.",
+      confirmLabel: "Discard",
+      cancelLabel: "Keep editing",
+      destructive: true,
+    });
+    if (!discard) return;
+    pendingActionRef.current = data.action;
+    setLeaving(true);
   });
 
   // Declared after usePreventRemove so its effect has run for the new value.
@@ -361,12 +361,12 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
   );
 
   function promptConflict(latest: INote, t: string, b: string) {
-    Alert.alert(
-      "Note changed",
-      `${latest.lastEditedBy?.name ?? "Someone"} changed this note while you were editing.`,
-      [
+    showDialog({
+      title: "Note changed",
+      message: `${latest.lastEditedBy?.name ?? "Someone"} changed this note while you were editing.`,
+      actions: [
         {
-          text: "Load theirs",
+          label: "Load theirs",
           onPress: () => {
             if (sameSession(sessionUidRef.current)) dispatch(upsertNote(latest));
             if (!mountedRef.current) return;
@@ -376,7 +376,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
           },
         },
         {
-          text: "Keep mine",
+          label: "Keep mine",
           onPress: () => {
             if (!mountedRef.current) return;
             // Adopt their version (so the next save is accepted) but keep my text.
@@ -388,8 +388,7 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
           },
         },
       ],
-      { cancelable: false },
-    );
+    });
   }
 
   const handleSave = () => {
@@ -487,43 +486,55 @@ const NoteEditorScreen = ({ route, navigation }: any) => {
   const openMenu = () => {
     if (isOwner) {
       if (!note) return; // nothing to delete on an unsaved draft
-      Alert.alert("Note options", undefined, [
-        {
-          text: "Delete note",
-          style: "destructive",
-          onPress: () =>
-            Alert.alert(
-              "Delete note?",
-              "Delete this note? It will also disappear for everyone it's shared with.",
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Delete", style: "destructive", onPress: performDelete },
-              ],
-            ),
-        },
-        { text: "Cancel", style: "cancel" },
-      ]);
+      showDialog({
+        title: "Note options",
+        icon: null,
+        actions: [
+          {
+            label: "Delete note",
+            style: "destructive",
+            onPress: async () => {
+              if (
+                !(await confirm({
+                  title: "Delete note?",
+                  message:
+                    "Delete this note? It will also disappear for everyone it's shared with.",
+                  confirmLabel: "Delete",
+                  destructive: true,
+                }))
+              )
+                return;
+              performDelete();
+            },
+          },
+          { label: "Cancel", style: "cancel" },
+        ],
+      });
     } else {
-      Alert.alert("Note options", undefined, [
-        {
-          text: "Remove from my notes",
-          style: "destructive",
-          onPress: () =>
-            Alert.alert(
-              "Remove from my notes?",
-              "You won't be able to see this note unless it's shared with you again.",
-              [
-                { text: "Cancel", style: "cancel" },
-                {
-                  text: "Remove",
-                  style: "destructive",
-                  onPress: performRemoveFromMine,
-                },
-              ],
-            ),
-        },
-        { text: "Cancel", style: "cancel" },
-      ]);
+      showDialog({
+        title: "Note options",
+        icon: null,
+        actions: [
+          {
+            label: "Remove from my notes",
+            style: "destructive",
+            onPress: async () => {
+              if (
+                !(await confirm({
+                  title: "Remove from my notes?",
+                  message:
+                    "You won't be able to see this note unless it's shared with you again.",
+                  confirmLabel: "Remove",
+                  destructive: true,
+                }))
+              )
+                return;
+              performRemoveFromMine();
+            },
+          },
+          { label: "Cancel", style: "cancel" },
+        ],
+      });
     }
   };
 

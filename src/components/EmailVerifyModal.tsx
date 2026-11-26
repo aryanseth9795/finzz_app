@@ -6,12 +6,13 @@ import {
   StyleSheet,
   TouchableOpacity,
   Modal,
-  Alert,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
+import { useToast, ToastHost } from "../contexts/ToastContext";
+import { useDialog } from "../contexts/DialogContext";
 import { Button } from "./ui";
 import { sendVerifyEmailOtpApi, verifyEmailApi } from "../api/authApi";
 import { useAppDispatch } from "../store";
@@ -32,6 +33,8 @@ const EmailVerifyModal: React.FC<EmailVerifyModalProps> = ({
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
   const dispatch = useAppDispatch();
+  const { showErrorToast, showWarningToast } = useToast();
+  const { showDialog } = useDialog();
 
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
@@ -68,7 +71,7 @@ const EmailVerifyModal: React.FC<EmailVerifyModalProps> = ({
   // ── Step 1: Send OTP ────────────────────────────────────
   const handleSendOtp = async () => {
     if (!email.trim() || !/\S+@\S+\.\S+/.test(email.trim())) {
-      Alert.alert("Invalid Email", "Please enter a valid email address");
+      showWarningToast("Please enter a valid email address", "Invalid Email");
       return;
     }
     setLoadingState(true);
@@ -77,8 +80,7 @@ const EmailVerifyModal: React.FC<EmailVerifyModalProps> = ({
       setStep("otp");
       startCooldown();
     } catch (error: any) {
-      Alert.alert(
-        "Error",
+      showErrorToast(
         error?.response?.data?.message || "Failed to send OTP",
       );
     } finally {
@@ -92,8 +94,7 @@ const EmailVerifyModal: React.FC<EmailVerifyModalProps> = ({
       await sendVerifyEmailOtpApi(email.trim());
       startCooldown();
     } catch (error: any) {
-      Alert.alert(
-        "Error",
+      showErrorToast(
         error?.response?.data?.message || "Failed to resend OTP",
       );
     }
@@ -117,7 +118,7 @@ const EmailVerifyModal: React.FC<EmailVerifyModalProps> = ({
   const handleVerify = async () => {
     const otpValue = otp.join("");
     if (otpValue.length < 6) {
-      Alert.alert("Invalid OTP", "Please enter all 6 digits");
+      showWarningToast("Please enter all 6 digits", "Invalid OTP");
       return;
     }
     setLoadingState(true);
@@ -136,14 +137,13 @@ const EmailVerifyModal: React.FC<EmailVerifyModalProps> = ({
           }),
         );
       }
-      Alert.alert(
-        "Email Verified! ✓",
-        "Your email has been verified successfully.",
-        [{ text: "OK", onPress: handleDismiss }],
-      );
+      showDialog({
+        title: "Email Verified! ✓",
+        message: "Your email has been verified successfully.",
+        actions: [{ label: "OK", onPress: handleDismiss }],
+      });
     } catch (error: any) {
-      Alert.alert(
-        "Error",
+      showErrorToast(
         error?.response?.data?.message || "Verification failed",
       );
     } finally {
@@ -334,6 +334,7 @@ const EmailVerifyModal: React.FC<EmailVerifyModalProps> = ({
             </>
           )}
         </View>
+        <ToastHost />
       </KeyboardAvoidingView>
     </Modal>
   );

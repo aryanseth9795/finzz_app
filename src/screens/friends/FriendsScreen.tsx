@@ -5,7 +5,6 @@ import {
   FlatList,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   RefreshControl,
   TextInput,
@@ -13,6 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import { SafeAreaWrapper, Avatar, Button } from "../../components/ui";
 import {
   searchByPhoneApi,
@@ -37,6 +37,7 @@ import { logger } from "../../utils/logger";
 
 const FriendsScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
+  const { showSuccessToast, showErrorToast } = useToast();
   const { colors, fontSize: fs } = theme;
   const dispatch = useAppDispatch();
 
@@ -77,7 +78,7 @@ const FriendsScreen = ({ navigation }: any) => {
       if (error?.response?.status === 404) {
         dispatch(setSearchResult({ exists: false }));
       } else {
-        Alert.alert("Error", error?.response?.data?.message || "Search failed");
+        showErrorToast(error?.response?.data?.message || "Search failed");
       }
     } finally {
       setSearching(false);
@@ -87,16 +88,13 @@ const FriendsScreen = ({ navigation }: any) => {
   const handleSendRequest = async (toUserId: string) => {
     try {
       await sendFriendRequestApi(toUserId);
-      Alert.alert("Success", "Friend request sent!");
+      showSuccessToast("Friend request sent");
       dispatch(setSearchResult(null));
       setSearchPhone("");
       fetchRequests();
       await cacheManager.remove(CACHE_KEYS.FRIENDS);
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to send request",
-      );
+      showErrorToast(error?.response?.data?.message || "Failed to send request");
     }
   };
 
@@ -117,7 +115,7 @@ const FriendsScreen = ({ navigation }: any) => {
       await acceptFriendRequestApi(requestId);
       dispatch(removeIncomingRequest(requestId));
     } catch (error) {
-      Alert.alert("Could not accept", describeError(error));
+      showErrorToast(describeError(error), "Could not accept");
       return;
     }
 
@@ -144,10 +142,7 @@ const FriendsScreen = ({ navigation }: any) => {
       await rejectFriendRequestApi(requestId);
       dispatch(removeIncomingRequest(requestId));
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to reject",
-      );
+      showErrorToast(error?.response?.data?.message || "Failed to reject");
     }
   };
 

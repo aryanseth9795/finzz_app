@@ -5,12 +5,12 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
 import { useAppDispatch } from "../../store";
 import { upsertNote } from "../../store/slices/notesSlice";
@@ -34,6 +34,7 @@ const NoteShareScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
   const { showSuccessToast, showErrorToast } = useToast();
+  const { confirm } = useDialog();
   const dispatch = useAppDispatch();
 
   const [shares, setShares] = useState<INoteShare[]>([]);
@@ -140,64 +141,59 @@ const NoteShareScreen = ({ route, navigation }: any) => {
     }
   };
 
-  const handleRemove = (userId: string, name: string) => {
+  const handleRemove = async (userId: string, name: string) => {
     if (busyRef.current) return;
-    Alert.alert(`Stop sharing with ${name}?`, undefined, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Remove",
-        style: "destructive",
-        onPress: async () => {
-          if (!beginBusy()) return;
-          try {
-            const res = await revokeNoteShareApi(noteId, userId);
-            if (mountedRef.current) {
-              setShares((prev) => prev.filter((s) => s.user._id !== userId));
-            }
-            showSuccessToast("Access removed");
-            // The revoke response may not carry the note; the editor refetches
-            // on focus, so the dispatch is only done when we have it.
-            if (res?.data?.note) dispatch(upsertNote(res.data.note));
-            try {
-              await reloadShares();
-            } catch (reloadError) {
-              logger.error("Failed to refresh shares", reloadError);
-            }
-          } catch (error) {
-            if (!handleGone(error)) showErrorToast(describeError(error));
-          } finally {
-            endBusy();
-          }
-        },
-      },
-    ]);
+    if (
+      !(await confirm({
+        title: `Stop sharing with ${name}?`,
+        confirmLabel: "Remove",
+        destructive: true,
+      }))
+    )
+      return;
+    if (!beginBusy()) return;
+    try {
+      const res = await revokeNoteShareApi(noteId, userId);
+      if (mountedRef.current) {
+        setShares((prev) => prev.filter((s) => s.user._id !== userId));
+      }
+      showSuccessToast("Access removed");
+      // The revoke response may not carry the note; the editor refetches
+      // on focus, so the dispatch is only done when we have it.
+      if (res?.data?.note) dispatch(upsertNote(res.data.note));
+      try {
+        await reloadShares();
+      } catch (reloadError) {
+        logger.error("Failed to refresh shares", reloadError);
+      }
+    } catch (error) {
+      if (!handleGone(error)) showErrorToast(describeError(error));
+    } finally {
+      endBusy();
+    }
   };
 
-  const handleRemoveAll = () => {
+  const handleRemoveAll = async () => {
     if (busyRef.current) return;
-    Alert.alert(
-      "Stop sharing with everyone?",
-      "Everyone listed here will lose access to this note.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Stop sharing",
-          style: "destructive",
-          onPress: async () => {
-            if (!beginBusy()) return;
-            try {
-              const res = await revokeAllNoteSharesApi(noteId);
-              if (mountedRef.current) setShares([]);
-              if (res?.data?.note) dispatch(upsertNote(res.data.note));
-            } catch (error) {
-              if (!handleGone(error)) showErrorToast(describeError(error));
-            } finally {
-              endBusy();
-            }
-          },
-        },
-      ],
-    );
+    if (
+      !(await confirm({
+        title: "Stop sharing with everyone?",
+        message: "Everyone listed here will lose access to this note.",
+        confirmLabel: "Stop sharing",
+        destructive: true,
+      }))
+    )
+      return;
+    if (!beginBusy()) return;
+    try {
+      const res = await revokeAllNoteSharesApi(noteId);
+      if (mountedRef.current) setShares([]);
+      if (res?.data?.note) dispatch(upsertNote(res.data.note));
+    } catch (error) {
+      if (!handleGone(error)) showErrorToast(describeError(error));
+    } finally {
+      endBusy();
+    }
   };
 
   const handleAddPeople = async (ids: string[] | null) => {

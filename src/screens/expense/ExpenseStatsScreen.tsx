@@ -13,7 +13,6 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   RefreshControl,
-  Alert,
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -22,6 +21,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import {
   getAdvancedStatsApi,
   getExpenseExportHtmlApi,
@@ -74,6 +74,7 @@ const trendTxCounts = (
 };
 
 const ExpenseStatsScreen = ({ navigation }: any) => {
+  const { showErrorToast, showWarningToast } = useToast();
   const { theme } = useTheme();
   const { colors, spacing, fontSize, fontWeight } = theme;
   const { width: windowWidth } = useWindowDimensions();
@@ -168,9 +169,9 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
   const handleDownloadReport = async () => {
     if (downloadingRef.current) return;
     if (!stats?.selectedLedger?._id) {
-      Alert.alert(
-        "No Data",
+      showWarningToast(
         "No ledger found for this month. Add some expenses first.",
+        "No Data",
       );
       return;
     }
@@ -188,7 +189,7 @@ const ExpenseStatsScreen = ({ navigation }: any) => {
       });
     } catch (error) {
       logger.error("PDF export failed", error);
-      Alert.alert("Could not create report", describeError(error));
+      showErrorToast(describeError(error), "Could not create report");
     } finally {
       downloadingRef.current = false;
       setDownloading(false);

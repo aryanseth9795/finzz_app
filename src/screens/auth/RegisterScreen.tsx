@@ -8,13 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Button } from "../../components/ui";
 import { registerApi, sendOtpApi, verifyOtpApi } from "../../api/authApi";
 import { describeError } from "../../api/axios";
+import { useToast } from "../../contexts/ToastContext";
 import { validatePhone } from "../../utils/phone";
 import { useCooldown } from "../../hooks/useCooldown";
 import { tokenManager } from "../../utils/tokenManager";
@@ -28,6 +28,7 @@ const RegisterScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
   const dispatch = useAppDispatch();
+  const { showErrorToast, showWarningToast, showInfoToast } = useToast();
 
   // Step 1 fields
   const [name, setName] = useState("");
@@ -94,10 +95,7 @@ const RegisterScreen = ({ navigation }: any) => {
       setStep("otp");
       startCooldown();
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error?.response?.data?.message || "Failed to send OTP",
-      );
+      showErrorToast(error?.response?.data?.message || "Failed to send OTP");
     } finally {
       setLoadingState(false);
     }
@@ -109,9 +107,9 @@ const RegisterScreen = ({ navigation }: any) => {
     try {
       await sendOtpApi(email.trim());
       startCooldown();
-      Alert.alert("OTP Sent", "A new OTP has been sent to your email.");
+      showInfoToast("A new OTP has been sent to your email.", "OTP sent");
     } catch (error) {
-      Alert.alert("Error", describeError(error));
+      showErrorToast(describeError(error));
     }
   };
 
@@ -156,12 +154,12 @@ const RegisterScreen = ({ navigation }: any) => {
   const handleRegister = async () => {
     const otpValue = otp.join("");
     if (otpValue.length < 6) {
-      Alert.alert("Invalid OTP", "Please enter all 6 digits");
+      showWarningToast("Please enter all 6 digits", "Invalid OTP");
       return;
     }
 
     if (!phoneCheck.ok) {
-      Alert.alert("Invalid phone number", phoneCheck.message);
+      showWarningToast(phoneCheck.message, "Invalid phone number");
       setStep("form");
       return;
     }
@@ -190,7 +188,7 @@ const RegisterScreen = ({ navigation }: any) => {
       // saved category list from this reply (a new account is at 0: no request).
       void syncCategoriesOnLaunch(user.expenseCategoriesVersion);
     } catch (error) {
-      Alert.alert("Registration Failed", describeError(error));
+      showErrorToast(describeError(error), "Registration failed");
     } finally {
       setLoadingState(false);
       dispatch(setLoading(false));

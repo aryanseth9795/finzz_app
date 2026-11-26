@@ -9,12 +9,12 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import {
   addPoolTxApi,
@@ -48,7 +48,8 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
 
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
-  const { showSuccessToast } = useToast();
+  const { showSuccessToast, showErrorToast, showWarningToast } = useToast();
+  const { confirm } = useDialog();
 
   const [amount, setAmount] = useState(isEditing ? String(txn.amount) : "");
   const [type, setType] = useState<"credit" | "debit">(
@@ -64,7 +65,7 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
   const handleSubmit = async () => {
     const parsed = parseAmount(amount);
     if (!parsed.ok) {
-      Alert.alert("Invalid Amount", parsed.message);
+      showWarningToast(parsed.message, "Invalid Amount");
       return;
     }
 
@@ -90,40 +91,35 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
       navigation.goBack();
     } catch (error) {
       // Stay on the form so the user's input survives a failure.
-      Alert.alert(
-        isEditing ? "Could not update" : "Could not add",
+      showErrorToast(
         describeError(error),
+        isEditing ? "Could not update" : "Could not add",
       );
     } finally {
       setLoading(false);
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!isEditing) return;
-    Alert.alert(
-      "Delete transaction?",
-      "This removes the entry from the pool ledger and cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              setLoading(true);
-              await deletePoolTxApi(txn._id);
-              showSuccessToast("Transaction deleted");
-              navigation.goBack();
-            } catch (error) {
-              Alert.alert("Could not delete", describeError(error));
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ],
-    );
+    const ok = await confirm({
+      title: "Delete transaction?",
+      message:
+        "This removes the entry from the pool ledger and cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      setLoading(true);
+      await deletePoolTxApi(txn._id);
+      showSuccessToast("Transaction deleted");
+      navigation.goBack();
+    } catch (error) {
+      showErrorToast(describeError(error), "Could not delete");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { useVault } from "../VaultContext";
 import { VaultGroup, VaultValidationError, deleteGroup, moveGroup, sortedGroups, updateGroup } from "../model";
 import GroupEditorModal from "../components/GroupEditorModal";
@@ -16,6 +17,7 @@ const VaultSettingsScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
   const { colors } = theme;
   const { showSuccessToast, showErrorToast } = useToast();
+  const { confirm, showDialog } = useDialog();
   const vault = useVault();
   const data = vault.data!;
   const [editing, setEditing] = useState<VaultGroup | null>(null);
@@ -33,19 +35,28 @@ const VaultSettingsScreen = ({ navigation }: any) => {
     }
   };
 
-  const askDelete = (g: VaultGroup) => {
+  const askDelete = async (g: VaultGroup) => {
     const count = data.entries.filter((e) => e.groupId === g.id).length;
     if (count === 0) {
-      return Alert.alert("Delete group?", `"${g.name}" will be removed.`, [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => run((d) => deleteGroup(d, g.id, "keepEntries")) },
-      ]);
+      const ok = await confirm({
+        title: "Delete group?",
+        message: `"${g.name}" will be removed.`,
+        confirmLabel: "Delete",
+        destructive: true,
+      });
+      if (!ok) return;
+      return run((d) => deleteGroup(d, g.id, "keepEntries"));
     }
-    Alert.alert("Delete group?", `"${g.name}" has ${count} password${count === 1 ? "" : "s"}.`, [
-      { text: "Cancel", style: "cancel" },
-      { text: "Keep passwords", onPress: () => run((d) => deleteGroup(d, g.id, "keepEntries")) },
-      { text: `Delete all ${count}`, style: "destructive", onPress: () => run((d) => deleteGroup(d, g.id, "deleteEntries")) },
-    ]);
+    showDialog({
+      title: "Delete group?",
+      message: `"${g.name}" has ${count} password${count === 1 ? "" : "s"}.`,
+      icon: null,
+      actions: [
+        { label: "Cancel", style: "cancel" },
+        { label: "Keep passwords", onPress: () => run((d) => deleteGroup(d, g.id, "keepEntries")) },
+        { label: `Delete all ${count}`, style: "destructive", onPress: () => run((d) => deleteGroup(d, g.id, "deleteEntries")) },
+      ],
+    });
   };
 
   const changeSecret = async (type: SecretType, next: string) => {

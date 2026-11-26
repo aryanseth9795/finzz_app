@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from "react-native";
+import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useDialog } from "../../contexts/DialogContext";
 import type { IExpenseCategory } from "../../types";
 
 // Chips shown before "+N" expands the rest.
@@ -29,6 +30,7 @@ export default function CategoryChips({
   onRemove,
 }: CategoryChipsProps): React.JSX.Element | null {
   const { theme } = useTheme();
+  const { confirm } = useDialog();
   const { colors } = theme;
 
   const [expanded, setExpanded] = useState(false);
@@ -71,20 +73,18 @@ export default function CategoryChips({
     }
   }, []);
 
-  const confirmRemove = (chip: IExpenseCategory) => {
+  const confirmRemove = async (chip: IExpenseCategory) => {
     void markHintSeen();
-    Alert.alert(
-      `Remove "${chip.name}"?`,
-      "It won't show in suggestions. Past expenses keep it.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: () => void onRemove(chip),
-        },
-      ],
-    );
+    if (
+      !(await confirm({
+        title: `Remove "${chip.name}"?`,
+        message: "It won't show in suggestions. Past expenses keep it.",
+        confirmLabel: "Remove",
+        destructive: true,
+      }))
+    )
+      return;
+    void onRemove(chip);
   };
 
   if (chips.length === 0) return null;

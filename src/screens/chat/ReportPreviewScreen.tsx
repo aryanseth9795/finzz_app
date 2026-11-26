@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Platform,
 } from "react-native";
 import { WebView } from "react-native-webview";
@@ -17,6 +16,7 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system/legacy";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import { getChatExportHtmlApi } from "../../api/statsApi";
 import { describeError } from "../../api/axios";
@@ -63,6 +63,7 @@ const ReportPreviewScreen = ({ route, navigation }: any) => {
     friendName?: string;
   };
   const { theme } = useTheme();
+  const { showErrorToast, showInfoToast } = useToast();
   const { colors, fontSize: fs, borderRadius: br } = theme;
 
   const [state, setState] = useState<LoadState>({ status: "loading" });
@@ -141,14 +142,14 @@ const ReportPreviewScreen = ({ route, navigation }: any) => {
       }
 
       if (!(await Sharing.isAvailableAsync())) {
-        Alert.alert("Sharing unavailable", "Sharing isn't available on this device.");
+        showInfoToast("Sharing isn't available on this device.", "Sharing unavailable");
         return;
       }
       await Sharing.shareAsync(tempUri, PDF_SHARE_OPTIONS);
       shared = true;
     } catch (error) {
       logger.error("Failed to share report", error);
-      Alert.alert("Couldn't share the report", describeError(error));
+      showErrorToast(describeError(error), "Couldn't share the report");
     } finally {
       // Keep the file once it has been handed to the share sheet; the sweep
       // removes it later. Delete immediately only when sharing never happened.
@@ -172,7 +173,7 @@ const ReportPreviewScreen = ({ route, navigation }: any) => {
       await Print.printAsync({ html: report.html });
     } catch (error) {
       logger.error("Failed to print report", error);
-      Alert.alert("Couldn't print the report", describeError(error));
+      showErrorToast(describeError(error), "Couldn't print the report");
     } finally {
       busyRef.current = false;
       if (mountedRef.current) setBusy(null);

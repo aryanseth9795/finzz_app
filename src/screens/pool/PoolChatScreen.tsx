@@ -7,7 +7,6 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   RefreshControl,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -29,6 +28,7 @@ import {
 } from "../../api/poolApi";
 import { describeError } from "../../api/axios";
 import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { refId, refName } from "../../utils/entities";
 import { formatCurrency } from "../../utils/money";
 import { formatDate } from "../../utils/dates";
@@ -42,7 +42,8 @@ const PoolChatScreen = ({ route, navigation }: any) => {
   const { activePool, transactions, txLoading, nextCursor, hasMore } =
     useAppSelector((state) => state.pool);
   const userId = useAppSelector((state) => state.auth.user?._id);
-  const { showSuccessToast } = useToast();
+  const { showSuccessToast, showErrorToast } = useToast();
+  const { showDialog } = useDialog();
 
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -92,13 +93,17 @@ const PoolChatScreen = ({ route, navigation }: any) => {
       const status = (error as { response?: { status?: number } })?.response
         ?.status;
       if (status === 404 || status === 403) {
-        Alert.alert("Pool unavailable", "This pool no longer exists.");
+        showDialog({
+          title: "Pool unavailable",
+          message: "This pool no longer exists.",
+          actions: [{ label: "OK" }],
+        });
         navigation.goBack();
         return;
       }
       setLoadError(describeError(error));
     }
-  }, [poolId, dispatch, navigation]);
+  }, [poolId, dispatch, navigation, showDialog]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -163,7 +168,7 @@ const PoolChatScreen = ({ route, navigation }: any) => {
       await Promise.all([fetchTransactions(), fetchStats()]);
       showSuccessToast("Transaction verified!");
     } catch (error) {
-      Alert.alert("Could not verify", describeError(error));
+      showErrorToast(describeError(error), "Could not verify");
     }
   };
 

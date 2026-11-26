@@ -1,52 +1,87 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Animated,
   Pressable,
+  PanResponder,
   AccessibilityInfo,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../contexts/ThemeContext";
 import { formatCurrency } from "../utils/money";
+import type { ToastType } from "../utils/notifyLogic";
 
+/**
+ * The app's toast (T-026): success, error, warning and info.
+ * The file keeps its old name so existing imports don't churn.
+ */
 interface SuccessToastProps {
   visible: boolean;
+  /** Changes on every show, so the same text twice still animates and announces. */
+  seq?: number;
   message: string;
+  title?: string;
   amount?: number;
-  type?: "success" | "error";
+  type?: ToastType;
   onDismiss?: () => void;
 }
 
+const ICONS: Record<ToastType, keyof typeof Ionicons.glyphMap> = {
+  success: "checkmark-circle",
+  error: "close-circle",
+  warning: "warning",
+  info: "information-circle",
+};
+
+const HIDDEN_Y = -160;
+
 const SuccessToast: React.FC<SuccessToastProps> = ({
   visible,
+  seq,
   message,
+  title,
   amount,
   type = "success",
   onDismiss,
 }) => {
   const { theme } = useTheme();
   const { colors } = theme;
-  const slideAnim = useRef(new Animated.Value(-100)).current;
+  const insets = useSafeAreaInsets();
+  const slideAnim = useRef(new Animated.Value(HIDDEN_Y)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
-  /**
-   * `mounted` decouples "should be shown" from "is still on screen".
-   *
-   * The component previously ran `if (!visible) return null` immediately after
-   * starting the exit animation, so the view was unmounted on the same render
-   * and the animation never played — the entire `else` branch was dead code.
-   * The toast simply vanished.
-   *
-   * Keeping it mounted until the exit animation calls back is what lets the
-   * dismissal actually animate.
-   */
+  // Stay mounted until the exit animation finishes, so dismissal animates.
   const [mounted, setMounted] = useState(visible);
+
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+
+  // Swipe up to dismiss; a small drag springs back.
+  const pan = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 6,
+        onPanResponderMove: (_, g) => {
+          if (g.dy < 0) slideAnim.setValue(g.dy);
+        },
+        onPanResponderRelease: (_, g) => {
+          if (g.dy < -24 || g.vy < -0.5) {
+            dismissRef.current?.();
+          } else {
+            Animated.spring(slideAnim, { toValue: 0, useNativeDriver: true }).start();
+          }
+        },
+      }),
+    [slideAnim],
+  );
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
+      slideAnim.setValue(HIDDEN_Y);
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -56,19 +91,17 @@ const SuccessToast: React.FC<SuccessToastProps> = ({
         }),
         Animated.timing(opacityAnim, {
           toValue: 1,
-          duration: 250,
+          duration: 200,
           useNativeDriver: true,
         }),
       ]).start();
 
-      // Screen readers do not announce a view appearing. Without this the
-      // confirmation that a transaction saved is invisible to VoiceOver and
-      // TalkBack users.
-      AccessibilityInfo.announceForAccessibility?.(message);
+      // Screen readers don't announce a view appearing.
+      AccessibilityInfo.announceForAccessibility?.(title ? `${title}. ${message}` : message);
     } else if (mounted) {
       Animated.parallel([
         Animated.timing(slideAnim, {
-          toValue: -100,
+          toValue: HIDDEN_Y,
           duration: 220,
           useNativeDriver: true,
         }),
@@ -82,20 +115,37 @@ const SuccessToast: React.FC<SuccessToastProps> = ({
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, message]);
+  }, [visible, seq]);
 
   if (!mounted) return null;
 
-  const backgroundColor = type === "success" ? colors.success : colors.danger;
-  const icon = type === "success" ? "checkmark-circle" : "close-circle";
+  const accent = {
+    success: colors.success,
+    error: colors.danger,
+    warning: colors.warning,
+    info: colors.info,
+  }[type];
+
+  // Success and error keep their solid fill (white text passes contrast on
+  // both). Warning amber and info blue are too light for white text, so they
+  // use a surface card with a coloured edge and icon instead.
+  const solid = type === "success" || type === "error";
+  const bg = solid ? accent : colors.surfaceElevated;
+  const fg = solid ? "#fff" : colors.text;
+  const fgSub = solid ? "rgba(255,255,255,0.92)" : colors.textSecondary;
+  const amountText = amount !== undefined ? `, ${formatCurrency(amount)}` : "";
 
   return (
     <Animated.View
       pointerEvents="box-none"
+      {...pan.panHandlers}
       style={[
         styles.container,
         {
-          backgroundColor,
+          top: insets.top + 8,
+          backgroundColor: bg,
+          borderLeftColor: accent,
+          borderLeftWidth: solid ? 0 : 4,
           transform: [{ translateY: slideAnim }],
           opacity: opacityAnim,
         },
@@ -107,13 +157,16 @@ const SuccessToast: React.FC<SuccessToastProps> = ({
         onPress={onDismiss}
         style={styles.content}
         accessibilityRole="button"
-        accessibilityLabel={`${message}${amount !== undefined ? `, ${formatCurrency(amount)}` : ""}. Tap to dismiss.`}
+        accessibilityLabel={`${title ? `${title}. ` : ""}${message}${amountText}. Tap to dismiss.`}
       >
-        <Ionicons name={icon} size={24} color="#fff" />
+        <Ionicons name={ICONS[type]} size={24} color={solid ? "#fff" : accent} />
         <View style={styles.textContainer}>
-          <Text style={styles.message}>{message}</Text>
+          {title ? <Text style={[styles.title, { color: fg }]}>{title}</Text> : null}
+          <Text style={[title ? styles.body : styles.message, { color: title ? fgSub : fg }]}>
+            {message}
+          </Text>
           {amount !== undefined && (
-            <Text style={styles.amount}>{formatCurrency(amount)}</Text>
+            <Text style={[styles.amount, { color: fg }]}>{formatCurrency(amount)}</Text>
           )}
         </View>
       </Pressable>
@@ -124,16 +177,16 @@ const SuccessToast: React.FC<SuccessToastProps> = ({
 const styles = StyleSheet.create({
   container: {
     position: "absolute",
-    top: 50,
     left: 16,
     right: 16,
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
     zIndex: 9999,
   },
   content: {
@@ -144,15 +197,22 @@ const styles = StyleSheet.create({
   textContainer: {
     flex: 1,
   },
+  title: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
   message: {
     fontSize: 15,
     fontWeight: "600",
-    color: "#fff",
+  },
+  body: {
+    fontSize: 14,
+    fontWeight: "500",
+    marginTop: 2,
   },
   amount: {
     fontSize: 18,
     fontWeight: "700",
-    color: "#fff",
     marginTop: 2,
   },
 });

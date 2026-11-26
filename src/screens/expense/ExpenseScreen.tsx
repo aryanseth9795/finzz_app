@@ -13,7 +13,6 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Alert,
   Modal,
   Pressable,
   Keyboard,
@@ -24,6 +23,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Avatar } from "../../components/ui";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { store, useAppSelector, useAppDispatch } from "../../store";
 import {
   setExpenses,
@@ -100,6 +101,9 @@ const ExpenseScreen = ({ navigation, route }: any) => {
   const { theme } = useTheme();
   const { colors, spacing, borderRadius, fontSize, fontWeight } = theme;
   const dispatch = useAppDispatch();
+  const { showSuccessToast, showErrorToast, showWarningToast, showInfoToast } =
+    useToast();
+  const { confirm } = useDialog();
 
   const { expenses, ledgers, activeLedger, txLoading, nextCursor, hasMore } =
     useAppSelector((state) => state.expense);
@@ -303,7 +307,7 @@ const ExpenseScreen = ({ navigation, route }: any) => {
 
   // Offline or a server error: say so; the rows already shown stay.
   useEffect(() => {
-    if (search.error) Alert.alert("Could not search", search.error);
+    if (search.error) showErrorToast(search.error, "Could not search");
   }, [search.error]);
 
   /** Hides the search bar and drops its text; the other filters stay. */
@@ -415,67 +419,57 @@ const ExpenseScreen = ({ navigation, route }: any) => {
     loadExpenses(false).finally(() => setLoadingMore(false));
   };
 
-  const handleDelete = (expense: IExpense) => {
+  const handleDelete = async (expense: IExpense) => {
     const expenseId = expense._id;
-    // Read now: the alert's callback runs after the user answers.
+    // Read now: the answer arrives after the user responds.
     const fromResults = filtering;
-    Alert.alert(
-      "Delete Expense",
-      "Are you sure you want to delete this expense?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              // Optimistic removal, then confirm with the server. The row is
-              // gone for good, so the month list drops it too if it has it.
-              dispatch(removeExpense(expenseId));
-              if (fromResults) search.removeLocal(expenseId);
-              await deleteExpenseApi(expenseId);
-              // Page 1 and the totals of the results, without the row.
-              if (fromResults) void search.refresh();
+    if (
+      !(await confirm({
+        title: "Delete Expense",
+        message: "Are you sure you want to delete this expense?",
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      // Optimistic removal, then confirm with the server. The row is
+      // gone for good, so the month list drops it too if it has it.
+      dispatch(removeExpense(expenseId));
+      if (fromResults) search.removeLocal(expenseId);
+      await deleteExpenseApi(expenseId);
+      // Page 1 and the totals of the results, without the row.
+      if (fromResults) void search.refresh();
 
-              /**
-               * Invalidate the cache.
-               *
-               * Nothing did this before, so within the 60-second TTL the
-               * deleted expense was read straight back out of AsyncStorage on
-               * the next visit and re-rendered — then vanished again when the
-               * network response landed. A row that flickers in and out
-               * destroys trust in the totals above it.
-               */
-              await Promise.all([
-                cacheManager.remove(
-                  CACHE_KEYS.EXPENSES(activeLedger?._id ?? ""),
-                ),
-                // A search result can be from another month.
-                ...(expense.ledgerId && expense.ledgerId !== activeLedger?._id
-                  ? [
-                      cacheManager.remove(
-                        CACHE_KEYS.EXPENSES(expense.ledgerId),
-                      ),
-                    ]
-                  : []),
-                cacheManager.remove(CACHE_KEYS.EXPENSE_LEDGERS),
-                cacheManager.remove(CACHE_KEYS.EXPENSE_STATS),
-              ]);
+      /**
+       * Invalidate the cache.
+       *
+       * Nothing did this before, so within the 60-second TTL the
+       * deleted expense was read straight back out of AsyncStorage on
+       * the next visit and re-rendered — then vanished again when the
+       * network response landed. A row that flickers in and out
+       * destroys trust in the totals above it.
+       */
+      await Promise.all([
+        cacheManager.remove(CACHE_KEYS.EXPENSES(activeLedger?._id ?? "")),
+        // A search result can be from another month.
+        ...(expense.ledgerId && expense.ledgerId !== activeLedger?._id
+          ? [cacheManager.remove(CACHE_KEYS.EXPENSES(expense.ledgerId))]
+          : []),
+        cacheManager.remove(CACHE_KEYS.EXPENSE_LEDGERS),
+        cacheManager.remove(CACHE_KEYS.EXPENSE_STATS),
+      ]);
 
-              await loadLedgers();
-            } catch (error) {
-              Alert.alert("Could not delete", describeError(error));
-              // Roll back by refetching the authoritative list.
-              void loadExpenses(true);
-              if (fromResults) void search.refresh();
-            }
-          },
-        },
-      ],
-    );
+      await loadLedgers();
+    } catch (error) {
+      showErrorToast(describeError(error), "Could not delete");
+      // Roll back by refetching the authoritative list.
+      void loadExpenses(true);
+      if (fromResults) void search.refresh();
+    }
   };
 
-  const handleCloseLedger = () => {
+  const handleCloseLedger = async () => {
     if (!activeLedger) return;
 
     const now = new Date();
@@ -487,44 +481,36 @@ const ExpenseScreen = ({ navigation, route }: any) => {
       activeLedger.year > currentYear ||
       (activeLedger.year === currentYear && activeLedger.month >= currentMonth)
     ) {
-      Alert.alert(
-        "Cannot Close",
-        "You can only close ledgers for past months.",
-      );
+      showWarningToast("You can only close ledgers for past months.", "Cannot Close");
       return;
     }
 
     if (activeLedger.status === "closed") {
-      Alert.alert("Already Closed", "This ledger is already closed.");
+      showInfoToast("This ledger is already closed.", "Already Closed");
       return;
     }
 
-    Alert.alert(
-      "Close Ledger",
-      `Close ledger for ${activeLedger.year}-${String(activeLedger.month).padStart(2, "0")}? This cannot be undone.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Close",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const response = await closeLedgerApi(
-                activeLedger.year,
-                activeLedger.month,
-              );
-              dispatch(updateLedger(response.data.ledger));
-              Alert.alert("Success", "Ledger closed successfully");
-            } catch (error: any) {
-              Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to close ledger",
-              );
-            }
-          },
-        },
-      ],
-    );
+    if (
+      !(await confirm({
+        title: "Close Ledger",
+        message: `Close ledger for ${activeLedger.year}-${String(activeLedger.month).padStart(2, "0")}? This cannot be undone.`,
+        confirmLabel: "Close",
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      const response = await closeLedgerApi(
+        activeLedger.year,
+        activeLedger.month,
+      );
+      dispatch(updateLedger(response.data.ledger));
+      showSuccessToast("Ledger closed");
+    } catch (error: any) {
+      showErrorToast(
+        error.response?.data?.message || "Failed to close ledger",
+      );
+    }
   };
 
   const canCloseLedger = () => {
