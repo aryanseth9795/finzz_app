@@ -1,19 +1,20 @@
 import React from "react";
-import { Linking, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import StaticInfoScreen from "./StaticInfoScreen";
 import { privacySections } from "../../constants/accountContent";
-import { PRIVACY_URL, TERMS_URL } from "../../constants/links";
+import { PRIVACY_PATH, TERMS_PATH } from "../../constants/links";
+import { openSitePage } from "../../utils/siteLinks";
 import { useTheme } from "../../contexts/ThemeContext";
 
 const PrivacyScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
 
-  const linkRow = (label: string, url: string) => (
+  const linkRow = (label: string, path: string) => (
     <TouchableOpacity
-      key={url}
-      onPress={() => Linking.openURL(url)}
+      key={path}
+      onPress={() => openSitePage(path)}
       accessibilityRole="link"
       activeOpacity={0.6}
       style={[
@@ -36,8 +37,8 @@ const PrivacyScreen = ({ navigation }: any) => {
       sections={privacySections}
       footer={
         <View style={styles.links}>
-          {linkRow("Full privacy policy", PRIVACY_URL)}
-          {linkRow("Terms of service", TERMS_URL)}
+          {linkRow("Full privacy policy", PRIVACY_PATH)}
+          {linkRow("Terms of service", TERMS_PATH)}
         </View>
       }
     />

@@ -445,6 +445,19 @@ const RegisterScreen = ({ navigation }: any) => {
                   </Text>
                 </Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => navigation.navigate("Onboarding", { fromLink: true })}
+                style={styles.switchAuth}
+                accessibilityRole="link"
+                accessibilityLabel="See how Finzz works"
+              >
+                <Text style={[styles.switchText, { color: colors.textTertiary }]}>
+                  New to Finzz?{" "}
+                  <Text style={{ color: colors.textLink, fontWeight: "600" }}>
+                    See how it works
+                  </Text>
+                </Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>

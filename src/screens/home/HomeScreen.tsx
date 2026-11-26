@@ -12,6 +12,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
 import ChatCard from "../../components/ChatCard";
+import { FinzzWordmark } from "../../components/brand/FinzzLogo";
 import { getUserChatsApi } from "../../api/chatApi";
 import { getPendingRequestsApi } from "../../api/friendApi";
 import { useAppSelector, useAppDispatch } from "../../store";
@@ -116,17 +117,9 @@ const HomeScreen = ({ navigation }: any) => {
   return (
     <SafeAreaWrapper edges={["top"]}>
       {/* Header */}
-      {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.separator }]}>
         <View style={styles.headerLeft}>
-          <Text
-            style={[
-              styles.headerLogo,
-              { color: colors.primary, fontSize: 28 }, // Branding size
-            ]}
-          >
-            Finzz
-          </Text>
+          <FinzzWordmark size={30} />
         </View>
         <View style={styles.headerActions}>
           <TouchableOpacity
@@ -209,12 +202,6 @@ const styles = StyleSheet.create({
   },
   headerLeft: {
     flex: 1,
-  },
-  headerLogo: {
-    fontWeight: "900", // Heavy weight for logo
-    letterSpacing: -1,
-    fontStyle: "italic",
-    fontSize: 40, // Optional flair
   },
   headerTitle: {
     fontWeight: "900",

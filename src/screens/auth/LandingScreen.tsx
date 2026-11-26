@@ -1,6 +1,13 @@
 import React from "react";
-import { View, Text, StyleSheet, Dimensions } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Dimensions,
+  TouchableOpacity,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { FinzzMark } from "../../components/brand/FinzzLogo";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Button } from "../../components/ui";
 
@@ -15,13 +22,8 @@ const LandingScreen = ({ navigation }: any) => {
       <View style={styles.container}>
         {/* Top section with branding */}
         <View style={styles.topSection}>
-          <View
-            style={[
-              styles.logoContainer,
-              { backgroundColor: colors.primarySurface },
-            ]}
-          >
-            <Ionicons name="wallet-outline" size={48} color={colors.primary} />
+          <View style={styles.logoContainer}>
+            <FinzzMark size={96} />
           </View>
           <Text
             style={[
@@ -95,6 +97,21 @@ const LandingScreen = ({ navigation }: any) => {
             size="md"
             fullWidth
           />
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Onboarding", { fromLink: true })}
+            accessibilityRole="link"
+            style={styles.howLink}
+          >
+            <Text
+              style={{
+                color: colors.textLink,
+                fontSize: fs.md,
+                fontWeight: "600",
+              }}
+            >
+              See how Finzz works
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
     </SafeAreaWrapper>
@@ -112,12 +129,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   logoContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 28,
+    marginBottom: 20,
+  },
+  howLink: {
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
   },
   appName: {
     fontWeight: "800",
