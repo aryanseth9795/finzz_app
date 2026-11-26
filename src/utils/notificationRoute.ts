@@ -36,6 +36,7 @@ export const routeForNotification = (
 
     case "pool_tx_added":
     case "pool_tx_verified":
+    case "pool_tx_rejected":
     case "pool_member_added":
       return poolId
         ? { name: "Pool", params: { screen: "PoolChat", params: { poolId } } }
