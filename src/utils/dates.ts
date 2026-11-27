@@ -162,3 +162,38 @@ export const isSameCalendarMonth = (
     da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth()
   );
 };
+
+/**
+ * The calendar day a chat transaction's stored `date` stands for (T-033).
+ *
+ * Since f54cd99 (2026-08-20) the App sends UTC midnight of the picked day
+ * (`toApiDate`), which `fromApiDate` reads back exactly. Older builds sent
+ * `new Date().toISOString()`, the moment of entry; its day is the LOCAL day
+ * of that moment, and `fromApiDate` would put an entry made 00:00–05:29 IST
+ * on the day before. So only an exact UTC midnight is read as a calendar day.
+ * (A legacy entry made at exactly 00:00:00.000 UTC is indistinguishable and
+ * reads as that UTC day.)
+ *
+ * Display only: the picker and month checks keep using `fromApiDate`.
+ */
+export const txCalendarDay = (value: string | Date): Date => {
+  const d = new Date(value);
+  const isUtcMidnight =
+    d.getUTCHours() === 0 &&
+    d.getUTCMinutes() === 0 &&
+    d.getUTCSeconds() === 0 &&
+    d.getUTCMilliseconds() === 0;
+  return isUtcMidnight
+    ? fromApiDate(d)
+    : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+};
+
+/** Display a chat transaction's day (`txCalendarDay`), or "—". */
+export const formatTxDay = (
+  value: string | Date | undefined | null,
+  pattern = "DD MMM YYYY",
+): string => {
+  if (!value) return "—";
+  const d = dayjs(txCalendarDay(value));
+  return d.isValid() ? d.format(pattern) : "—";
+};

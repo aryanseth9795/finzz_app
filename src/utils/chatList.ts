@@ -1,6 +1,6 @@
 import dayjs from "dayjs";
 import type { ILastTransaction } from "../types";
-import { fromApiDate } from "./dates";
+import { txCalendarDay } from "./dates";
 
 /**
  * The time label on a Home chat card (T-033).
@@ -11,8 +11,9 @@ import { fromApiDate } from "./dates";
  * has no time of day: in IST every card read "5:30 AM" while the details
  * sheet showed the real time from `createdAt`.
  *
- * Now the DAY comes from `date`, read with `fromApiDate` so no timezone can
- * shift it, which also matches the order the server sorts the list in. The
+ * Now the DAY comes from `date`, read with `txCalendarDay` so no timezone can
+ * shift it (and legacy rows that stored a moment keep their local day), which
+ * also matches the order the server sorts the list in. The
  * clock time comes from `createdAt`, and only when the transaction is dated
  * today and was added today. Otherwise it says "Today" rather than invent a
  * time (snapshots from before T-033 have no `createdAt`).
@@ -22,7 +23,7 @@ export const chatCardTime = (
   now: Date = new Date(),
 ): string => {
   if (!lastTx?.date) return "";
-  const txDay = dayjs(fromApiDate(lastTx.date));
+  const txDay = dayjs(txCalendarDay(lastTx.date));
   if (!txDay.isValid()) return "";
 
   const today = dayjs(now);

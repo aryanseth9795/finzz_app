@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import dayjs from "dayjs";
 import { useTheme } from "../../contexts/ThemeContext";
 import type { ITx } from "../../types";
-import { formatDate } from "../../utils/dates";
+import { formatTxDay } from "../../utils/dates";
 import { formatCurrency } from "../../utils/money";
 import { isRefTo } from "../../utils/entities";
 import {
@@ -318,7 +318,7 @@ const TxDetailsSheet: React.FC<TxDetailsSheetProps> = ({
                     fontWeight: fontWeight.medium,
                   }}
                 >
-                  {formatDate(tx.date)}
+                  {formatTxDay(tx.date)}
                 </Text>
               </View>
               <View
