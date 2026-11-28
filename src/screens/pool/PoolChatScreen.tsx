@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useState } from "react";
+import React, { useEffect, useCallback, useMemo, useState } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
@@ -18,14 +18,23 @@ import {
   setPoolTransactions,
   setPoolTxLoading,
   appendPoolTransactions,
+  updatePoolTx,
+  removePoolTx,
   resetPool,
 } from "../../store/slices/poolSlice";
 import {
   getPoolByIdApi,
   getPoolTxnsApi,
-  verifyPoolTxApi,
+  reviewPoolTxApi,
+  deletePoolTxApi,
   getPoolStatsApi,
 } from "../../api/poolApi";
+import PoolTxDetailsSheet from "../../components/pool/PoolTxDetailsSheet";
+import {
+  poolTxActions,
+  poolTxRefusal,
+  poolTxStatusOf,
+} from "../../utils/poolTx";
 import { describeError } from "../../api/axios";
 import { useToast } from "../../contexts/ToastContext";
 import { useDialog } from "../../contexts/DialogContext";
@@ -43,7 +52,25 @@ const PoolChatScreen = ({ route, navigation }: any) => {
     useAppSelector((state) => state.pool);
   const userId = useAppSelector((state) => state.auth.user?._id);
   const { showSuccessToast, showErrorToast } = useToast();
-  const { showDialog } = useDialog();
+  const { showDialog, confirm } = useDialog();
+
+  // The entry whose details sheet is open, by id so the sheet always shows
+  // the row's latest version from Redux.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const selectedTx = useMemo(
+    () => transactions.find((t) => t._id === selectedId) ?? null,
+    [transactions, selectedId],
+  );
+  const isClosed = activePool?.status === "closed";
+  // Names for raw-id references in the sheet's timeline.
+  const poolMembers = useMemo(
+    () =>
+      (activePool?.members ?? [])
+        .filter((m) => !!m && !!m._id)
+        .map((m) => ({ _id: String(m._id), name: m.name })),
+    [activePool],
+  );
 
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -161,14 +188,89 @@ const PoolChatScreen = ({ route, navigation }: any) => {
     setRefreshing(false);
   };
 
-  const handleVerify = async (txnId: string) => {
+  /**
+   * A refused change usually means this phone's row is stale:
+   * - the reply carries the latest entry (403 verified meanwhile, 409 changed,
+   *   400 already reviewed): show that version so the member looks again;
+   * - 404: it was deleted (or this member left): drop the row and the sheet.
+   * Returns true when the row was refreshed or removed.
+   */
+  const applyRefusal = (error: unknown, tx: IPoolTx): boolean => {
+    const refusal = poolTxRefusal(error);
+    if (refusal.kind === "stale") {
+      dispatch(updatePoolTx(refusal.latest));
+    } else if (refusal.kind === "gone") {
+      dispatch(removePoolTx(tx._id));
+      setSelectedId(null);
+    } else {
+      return false;
+    }
+    void fetchStats();
+    return true;
+  };
+
+  /**
+   * Verify or reject. The reply carries the updated entry, so the list isn't
+   * refetched; only the totals are (a reject changes them).
+   */
+  const handleReview = async (
+    tx: IPoolTx,
+    action: "verify" | "reject",
+    remark?: string,
+  ) => {
+    if (busy) return;
+    setBusy(true);
     try {
-      await verifyPoolTxApi(txnId);
-      // Refresh the totals too — verifying changes what the server reports.
-      await Promise.all([fetchTransactions(), fetchStats()]);
-      showSuccessToast("Transaction verified!");
+      const res = await reviewPoolTxApi(tx._id, action, remark, tx.updatedAt);
+      if (res.data?.poolTx) dispatch(updatePoolTx(res.data.poolTx));
+      void fetchStats();
+      setSelectedId(null);
+      showSuccessToast(action === "verify" ? "Entry verified!" : "Entry rejected");
     } catch (error) {
-      showErrorToast(describeError(error), "Could not verify");
+      const changed = applyRefusal(error, tx);
+      showErrorToast(
+        describeError(error),
+        changed
+          ? "This entry changed"
+          : action === "verify"
+            ? "Could not verify"
+            : "Could not reject",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleEdit = (tx: IPoolTx) => {
+    setSelectedId(null);
+    navigation.navigate("AddEditPoolTx", { poolId, mode: "edit", txn: tx });
+  };
+
+  const handleDelete = async (tx: IPoolTx) => {
+    // Close the sheet first: the confirm dialog is a Modal of its own.
+    setSelectedId(null);
+    const ok = await confirm({
+      title: "Delete entry?",
+      message:
+        "This removes the entry from the pool for everyone and cannot be undone.",
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await deletePoolTxApi(tx._id);
+      dispatch(removePoolTx(tx._id));
+      void fetchStats();
+      showSuccessToast("Entry deleted");
+    } catch (error) {
+      const changed = applyRefusal(error, tx);
+      showErrorToast(
+        describeError(error),
+        changed ? "This entry changed" : "Could not delete",
+      );
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -328,20 +430,33 @@ const PoolChatScreen = ({ route, navigation }: any) => {
   const renderTransaction = ({ item }: { item: IPoolTx }) => {
     const isCredit = item.type === "credit";
     const addedBy =
-      typeof item.addedBy === "string" ? item.addedBy : item.addedBy.name;
-    const verifiedBy =
-      typeof item.verifiedBy === "string"
-        ? item.verifiedBy
-        : item.verifiedBy?.name;
-
-    const canVerify =
-      !item.verified &&
-      ((typeof item.addedBy === "string" && item.addedBy !== userId) ||
-        (typeof item.addedBy === "object" && item.addedBy._id !== userId));
+      typeof item.addedBy === "string"
+        ? item.addedBy
+        : (item.addedBy?.name ?? "Unknown");
+    const status = poolTxStatusOf(item);
+    const rejected = status === "rejected";
+    const canVerify = poolTxActions(item, userId, isClosed).includes("verify");
+    // Rejected entries stay visible but struck through: they don't count.
+    const amountStyle = rejected
+      ? {
+          color: colors.textTertiary,
+          textDecorationLine: "line-through" as const,
+        }
+      : null;
 
     return (
-      <View
-        style={[styles.tableRow, { borderBottomColor: colors.separatorLight }]}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => setSelectedId(item._id)}
+        accessibilityRole="button"
+        accessibilityLabel={`${isCredit ? "Money in" : "Money out"} ${formatCurrency(item.amount)}, ${status}. Open details`}
+        style={[
+          styles.tableRow,
+          {
+            borderBottomColor: colors.separatorLight,
+            opacity: rejected ? 0.75 : 1,
+          },
+        ]}
       >
         {/* Main Row: Date | Credit | Debit | Status */}
         <View style={styles.rowMain}>
@@ -359,6 +474,7 @@ const PoolChatScreen = ({ route, navigation }: any) => {
               style={[
                 styles.rowText,
                 { color: colors.primary, textAlign: "center" },
+                isCredit ? amountStyle : null,
               ]}
             >
               {isCredit ? `₹${item.amount.toLocaleString("en-IN")}` : "-"}
@@ -370,6 +486,7 @@ const PoolChatScreen = ({ route, navigation }: any) => {
               style={[
                 styles.rowText,
                 { color: colors.danger, textAlign: "center" },
+                !isCredit ? amountStyle : null,
               ]}
             >
               {!isCredit ? `₹${item.amount.toLocaleString("en-IN")}` : "-"}
@@ -377,18 +494,30 @@ const PoolChatScreen = ({ route, navigation }: any) => {
           </View>
 
           <View style={[styles.colStatus, { alignItems: "center" }]}>
-            {item.verified ? (
+            {status === "verified" ? (
               <Ionicons
                 name="checkmark-circle"
                 size={18}
                 color={colors.primary}
+                accessibilityLabel="Verified"
+              />
+            ) : rejected ? (
+              <Ionicons
+                name="close-circle"
+                size={18}
+                color={colors.danger}
+                accessibilityLabel="Rejected"
               />
             ) : canVerify ? (
               <TouchableOpacity
-                onPress={() => handleVerify(item._id)}
+                onPress={() => handleReview(item, "verify")}
+                disabled={busy}
                 style={[
                   styles.verifyBtn,
-                  { backgroundColor: colors.successLight },
+                  {
+                    backgroundColor: colors.successLight,
+                    opacity: busy ? 0.5 : 1,
+                  },
                 ]}
               >
                 <Text style={[styles.verifyBtnText, { color: colors.success }]}>
@@ -400,6 +529,7 @@ const PoolChatScreen = ({ route, navigation }: any) => {
                 name="time-outline"
                 size={18}
                 color={colors.textTertiary}
+                accessibilityLabel="Pending"
               />
             )}
           </View>
@@ -414,15 +544,19 @@ const PoolChatScreen = ({ route, navigation }: any) => {
             {item.remarks || "No remarks"}
           </Text>
           <Text style={[styles.addedByText, { color: colors.textTertiary }]}>
-            Added by {addedBy}
+            {rejected ? (
+              <Text style={{ color: colors.danger, fontWeight: "600" }}>
+                {"Rejected · "}
+              </Text>
+            ) : null}
+            {`Added by ${addedBy}${item.editedAt ? " · edited" : ""}`}
           </Text>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
   const isAdmin = activePool?.admin._id === userId;
-  const isClosed = activePool?.status === "closed";
 
   return (
     <SafeAreaWrapper edges={["top"]}>
@@ -568,6 +702,19 @@ const PoolChatScreen = ({ route, navigation }: any) => {
           <Ionicons name="add" size={28} color="#fff" />
         </TouchableOpacity>
       )}
+
+      <PoolTxDetailsSheet
+        tx={selectedTx}
+        meId={userId}
+        members={poolMembers}
+        poolClosed={isClosed}
+        busy={busy}
+        onClose={() => setSelectedId(null)}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+        onVerify={(tx) => handleReview(tx, "verify")}
+        onReject={(tx, remark) => handleReview(tx, "reject", remark)}
+      />
     </SafeAreaWrapper>
   );
 };

@@ -68,14 +68,41 @@ export const getPoolTxnsApi = (
   return api.get(`/pools/tx/${poolId}${qs ? `?${qs}` : ""}`);
 };
 
-export const editPoolTxApi = (txnId: string, data: object) =>
-  api.put(`/pools/tx/${txnId}`, data);
+/**
+ * Edit (or, for a rejected entry, edit & resubmit). Send `expectedUpdatedAt`
+ * (the entry's `updatedAt` as shown) so a change made meanwhile gives 409
+ * instead of being overwritten. `remarks: ""` clears the remark.
+ */
+export const editPoolTxApi = (
+  txnId: string,
+  data: {
+    amount?: number;
+    type?: "credit" | "debit";
+    date?: string;
+    remarks?: string;
+    expectedUpdatedAt?: string;
+  },
+) => api.put(`/pools/tx/${txnId}`, data);
 
 export const deletePoolTxApi = (txnId: string) =>
   api.delete(`/pools/tx/${txnId}`);
 
-export const verifyPoolTxApi = (txnId: string) =>
-  api.post("/pools/tx/verify", { txnId });
+/**
+ * Verify or reject another member's pending entry (T-029). The reply carries
+ * the updated entry; a 409 / 400 reply carries the latest one as `poolTx`.
+ */
+export const reviewPoolTxApi = (
+  txnId: string,
+  action: "verify" | "reject",
+  remark?: string,
+  expectedUpdatedAt?: string,
+) =>
+  api.post("/pools/tx/review", {
+    txnId,
+    action,
+    ...(remark ? { remark } : {}),
+    ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+  });
 
 // ========================
 // Stats

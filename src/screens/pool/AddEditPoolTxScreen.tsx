@@ -15,6 +15,11 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
 import { useDialog } from "../../contexts/DialogContext";
+import {
+  poolTxRefusal,
+  poolTxStatusOf,
+  remarksPatch,
+} from "../../utils/poolTx";
 import { SafeAreaWrapper } from "../../components/ui";
 import {
   addPoolTxApi,
@@ -26,9 +31,14 @@ import { parseAmount } from "../../utils/money";
 import {
   toApiDate,
   fromApiDate,
-  pickerMinimumDate,
   pickerMaximumDate,
 } from "../../utils/dates";
+
+/**
+ * Pools have no monthly close, so an entry may be dated any past day
+ * (T-029): a trip that crosses a month end stays fixable.
+ */
+const POOL_PICKER_MINIMUM_DATE = new Date(2000, 0, 1);
 
 const AddEditPoolTxScreen = ({ route, navigation }: any) => {
   /**
@@ -45,6 +55,8 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
    */
   const { poolId, mode = "add", txn } = route.params;
   const isEditing = mode === "edit" && !!txn;
+  // Editing a rejected entry sends it back for review (T-029).
+  const isResubmit = isEditing && poolTxStatusOf(txn) === "rejected";
 
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
@@ -75,21 +87,42 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
         amount: parsed.value,
         type,
         date: toApiDate(date),
-        remarks: remarks.trim() || undefined,
       };
 
       if (isEditing) {
-        await editPoolTxApi(txn._id, payload);
+        await editPoolTxApi(txn._id, {
+          ...payload,
+          // Only a changed remark is sent ("" clears it).
+          ...remarksPatch(txn.remarks, remarks),
+          // The version this form was opened on: a change made meanwhile
+          // (a verify, or an edit from another phone) gives 409.
+          expectedUpdatedAt: txn.updatedAt,
+        });
       } else {
-        await addPoolTxApi({ poolId, ...payload });
+        await addPoolTxApi({
+          poolId,
+          ...payload,
+          remarks: remarks.trim() || undefined,
+        });
       }
 
       showSuccessToast(
-        isEditing ? "Transaction updated!" : "Transaction added!",
+        isResubmit
+          ? "Entry sent for review again"
+          : isEditing
+            ? "Transaction updated!"
+            : "Transaction added!",
         parsed.value,
       );
       navigation.goBack();
     } catch (error) {
+      if (isEditing && poolTxRefusal(error).kind !== "other") {
+        // Verified, changed or deleted meanwhile: the pool screen refetches
+        // on focus and shows the latest version.
+        showErrorToast(describeError(error), "Someone just changed this entry");
+        navigation.goBack();
+        return;
+      }
       // Stay on the form so the user's input survives a failure.
       showErrorToast(
         describeError(error),
@@ -142,7 +175,11 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
               { color: colors.text, fontSize: fs.xl },
             ]}
           >
-            {mode === "add" ? "Add Transaction" : "Edit Transaction"}
+            {mode === "add"
+              ? "Add Transaction"
+              : isResubmit
+                ? "Edit & resubmit"
+                : "Edit Transaction"}
           </Text>
           <View style={{ width: 40 }} />
         </View>
@@ -295,7 +332,7 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
                 value={date}
                 mode="date"
                 display="default"
-                minimumDate={pickerMinimumDate(isEditing ? txn.date : null)}
+                minimumDate={POOL_PICKER_MINIMUM_DATE}
                 maximumDate={pickerMaximumDate(isEditing ? txn.date : null)}
                 onChange={(event, selectedDate) => {
                   setShowDatePicker(false);
@@ -333,6 +370,8 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
               placeholderTextColor={colors.textTertiary}
               value={remarks}
               onChangeText={setRemarks}
+              // The server caps pool remarks at 200 characters.
+              maxLength={200}
               multiline
               numberOfLines={3}
               textAlignVertical="top"
@@ -356,7 +395,11 @@ const AddEditPoolTxScreen = ({ route, navigation }: any) => {
               <ActivityIndicator color="#fff" />
             ) : (
               <Text style={[styles.submitButtonText, { fontSize: fs.md }]}>
-                {mode === "add" ? "Add Transaction" : "Update Transaction"}
+                {mode === "add"
+                  ? "Add Transaction"
+                  : isResubmit
+                    ? "Resubmit for review"
+                    : "Update Transaction"}
               </Text>
             )}
           </TouchableOpacity>

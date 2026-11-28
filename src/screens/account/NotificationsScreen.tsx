@@ -103,6 +103,7 @@ const NotificationsScreen = ({ navigation }: any) => {
         return "swap-horizontal-outline";
       case "pool_tx_added":
       case "pool_tx_verified":
+      case "pool_tx_rejected":
         return "wallet-outline";
       case "pool_member_added":
       case "pool_member_removed":
@@ -135,6 +136,8 @@ const NotificationsScreen = ({ navigation }: any) => {
         return `${senderName} added a pool transaction.`;
       case "pool_tx_verified":
         return `${senderName} verified a pool transaction.`;
+      case "pool_tx_rejected":
+        return `${senderName} rejected your pool entry.`;
       case "pool_member_added":
         return `${senderName} added you to a pool.`;
       case "pool_member_removed":

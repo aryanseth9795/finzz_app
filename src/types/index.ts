@@ -148,6 +148,7 @@ export interface INotification {
     | "txn_edited"
     | "pool_tx_added"
     | "pool_tx_verified"
+    | "pool_tx_rejected"
     | "pool_member_added"
     | "pool_member_removed"
     | "note_shared"
@@ -195,6 +196,13 @@ export interface IPoolTx {
   verified: boolean;
   verifiedBy?: string | { _id: string; name: string };
   verifiedAt?: string;
+  /** Absent on entries from before T-029: read it with `poolTxStatusOf`. */
+  status?: "pending" | "verified" | "rejected";
+  rejectedBy?: string | { _id: string; name: string };
+  rejectedAt?: string;
+  rejectionRemark?: string;
+  editedAt?: string;
+  editCount?: number;
   createdAt: string;
   updatedAt: string;
 }
