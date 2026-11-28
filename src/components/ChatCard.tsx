@@ -1,10 +1,10 @@
 import React, { useCallback } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import dayjs from "dayjs";
 import { useTheme } from "../contexts/ThemeContext";
 import Avatar from "./ui/Avatar";
 import { IChat } from "../types";
 import { otherMember, isRefTo } from "../utils/entities";
+import { chatCardTime } from "../utils/chatList";
 
 interface ChatCardProps {
   chat: IChat;
@@ -40,17 +40,6 @@ const ChatCard: React.FC<ChatCardProps> = ({
   // rather than taking down the whole list.
   const displayName = friend?.name ?? "Deleted user";
   const isCredit = isRefTo(lastTx?.to, currentUserId);
-
-  const formatDate = (dateStr?: string): string => {
-    if (!dateStr) return "";
-    const date = dayjs(dateStr);
-    const now = dayjs();
-    if (date.isSame(now, "day")) return date.format("h:mm A");
-    if (date.isSame(now.subtract(1, "day"), "day")) return "Yesterday";
-    if (date.isSame(now, "year")) return date.format("DD MMM");
-    return date.format("DD/MM/YY");
-  };
-
 
   return (
     <TouchableOpacity
@@ -104,7 +93,7 @@ const ChatCard: React.FC<ChatCardProps> = ({
                 { color: colors.textTertiary, fontSize: 11 },
               ]}
             >
-              {formatDate(lastTx.date)}
+              {chatCardTime(lastTx)}
             </Text>
           )}
           {/* {lastTx && (

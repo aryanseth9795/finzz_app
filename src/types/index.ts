@@ -27,7 +27,10 @@ export interface AuthResponse {
 // ========================
 export interface ILastTransaction {
   amount: number;
+  /** The calendar date the user picked, at UTC midnight: no time of day. */
   date: string;
+  /** When it was added (T-033). Absent on snapshots from older servers. */
+  createdAt?: string;
   remark?: string;
   to: string;
   from: string;

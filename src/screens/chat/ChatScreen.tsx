@@ -16,7 +16,7 @@ import {
   Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import dayjs from "dayjs";
+import { formatTxDay } from "../../utils/dates";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
 import { getTxnsApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
@@ -645,7 +645,10 @@ const ChatScreen = ({ route, navigation }: any) => {
         <View style={styles.rowMain}>
           <View style={styles.colDate}>
             <Text style={[styles.rowText, { color: colors.text }]}>
-              {isCarryForward ? "Past" : dayjs(tx.date).format("DD/MM/YY")}
+              {/* `formatTxDay` reads a UTC-midnight date without a timezone
+                  shift (raw `dayjs(tx.date)` showed the previous day west
+                  of UTC) and keeps legacy rows on their local day (T-033). */}
+              {isCarryForward ? "Past" : formatTxDay(tx.date, "DD/MM/YY")}
             </Text>
           </View>
 
