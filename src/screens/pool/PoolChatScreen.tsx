@@ -40,7 +40,7 @@ import { useToast } from "../../contexts/ToastContext";
 import { useDialog } from "../../contexts/DialogContext";
 import { refId, refName } from "../../utils/entities";
 import { formatCurrency } from "../../utils/money";
-import { formatDate } from "../../utils/dates";
+import { formatTxDay } from "../../utils/dates";
 import { IPoolTx, IPoolStats } from "../../types";
 
 const PoolChatScreen = ({ route, navigation }: any) => {
@@ -462,10 +462,9 @@ const PoolChatScreen = ({ route, navigation }: any) => {
         <View style={styles.rowMain}>
           <View style={styles.colDate}>
             <Text style={[styles.rowText, { color: colors.text }]}>
-              {new Date(item.date).toLocaleDateString("en-IN", {
-                day: "2-digit",
-                month: "short",
-              })}
+              {/* UTC-midnight dates and legacy moment dates both keep their
+                  own day in every timezone (T-033 hand-off). */}
+              {formatTxDay(item.date, "DD MMM")}
             </Text>
           </View>
 
