@@ -4,7 +4,7 @@
 
 > *Stop arguing over who owes what. Track personal expenses, manage shared ledgers with friends, and settle up cleanly with beautifully verified transactions.*
 
-**📥 Download App Source:** [https://finzz.aryantechie.in](https://finzz.aryantechie.in)
+**📥 Download App Source:** [https://finzz.aryanseth.in](https://finzz.aryanseth.in)
 
 ---
 
