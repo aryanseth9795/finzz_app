@@ -9,10 +9,10 @@ import {
   View,
   StyleSheet,
   Text,
-  Alert,
 } from "react-native";
 import { useTheme } from "../contexts/ThemeContext";
 import { useToast } from "../contexts/ToastContext";
+import { useDialog } from "../contexts/DialogContext";
 import { useAppSelector, useAppDispatch } from "../store";
 import {
   setCredentials,
@@ -43,6 +43,7 @@ const RootNavigator = () => {
   const { theme, isDark } = useTheme();
   const { colors } = theme;
   const { showErrorToast } = useToast();
+  const { showDialog } = useDialog();
   const dispatch = useAppDispatch();
   const { isAuthenticated, initializing, user } = useAppSelector(
     (state) => state.auth,
@@ -62,20 +63,21 @@ const RootNavigator = () => {
       gate.release?.apkUrl ?? "",
       updateChannel(),
     );
-    Alert.alert(
-      "Update available",
-      `Finzz v${gate.optionalVersion} is available.`,
-      [
-        { text: "Later", style: "cancel", onPress: gate.dismissOptional },
+    showDialog({
+      dismissOnBackdrop: false,
+      title: "Update available",
+      message: `Finzz v${gate.optionalVersion} is available.`,
+      actions: [
+        { label: "Later", style: "cancel", onPress: gate.dismissOptional },
         {
-          text: isPlayStoreUrl(apkUrl) ? "Update" : "Download",
+          label: isPlayStoreUrl(apkUrl) ? "Update" : "Download",
           onPress: () => {
             gate.dismissOptional();
             if (apkUrl) void openUpdateLink(apkUrl).catch(() => undefined);
           },
         },
       ],
-    );
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gate.optionalVersion]);
 

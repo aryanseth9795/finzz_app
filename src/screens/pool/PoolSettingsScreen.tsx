@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   TextInput,
   Modal,
   FlatList,
@@ -28,6 +27,8 @@ import { IPool, IFriend } from "../../types";
 import { getFriendsListApi } from "../../api/friendApi";
 import { logger } from "../../utils/logger";
 import { describeError } from "../../api/axios";
+import { useToast, ToastHost } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 
 const PoolSettingsScreen = ({ route, navigation }: any) => {
   const { poolId } = route.params;
@@ -40,6 +41,8 @@ const PoolSettingsScreen = ({ route, navigation }: any) => {
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const userId = useAppSelector((state) => state.auth.user?._id);
+  const { showSuccessToast, showErrorToast } = useToast();
+  const { confirm } = useDialog();
 
   useEffect(() => {
     fetchPool();
@@ -76,124 +79,98 @@ const PoolSettingsScreen = ({ route, navigation }: any) => {
     try {
       setLoading(true);
       await addPoolMemberApi(poolId, friendId);
-      Alert.alert("Success", "Member added successfully!");
+      showSuccessToast("Member added");
       setShowAddMemberModal(false);
       fetchPool();
     } catch (error: any) {
-      Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to add member",
-      );
+      showErrorToast(error.response?.data?.message || "Failed to add member");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRemoveMember = (memberId: string, memberName: string) => {
-    Alert.alert(
-      "Remove Member?",
-      `Are you sure you want to remove ${memberName} from this pool?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Remove",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await removePoolMemberApi(poolId, memberId);
-              Alert.alert("Success", "Member removed successfully!");
-              fetchPool();
-            } catch (error: any) {
-              Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to remove member",
-              );
-            }
-          },
-        },
-      ],
-    );
+  const handleRemoveMember = async (memberId: string, memberName: string) => {
+    if (
+      !(await confirm({
+        title: "Remove Member?",
+        message: `Are you sure you want to remove ${memberName} from this pool?`,
+        confirmLabel: "Remove",
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await removePoolMemberApi(poolId, memberId);
+      showSuccessToast("Member removed");
+      fetchPool();
+    } catch (error: any) {
+      showErrorToast(error.response?.data?.message || "Failed to remove member");
+    }
   };
 
   const handleCloseReopen = async () => {
     if (!pool) return;
     const action = pool.status === "active" ? "close" : "reopen";
 
-    Alert.alert(
-      `${action === "close" ? "Close" : "Reopen"} Pool?`,
-      `Are you sure you want to ${action} this pool?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: action === "close" ? "Close" : "Reopen",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              if (action === "close") {
-                await closePoolApi(poolId);
-              } else {
-                await reopenPoolApi(poolId);
-              }
-              Alert.alert("Success", `Pool ${action}ed successfully!`);
-              fetchPool();
-            } catch (error: any) {
-              Alert.alert(
-                "Error",
-                error.response?.data?.message || `Failed to ${action} pool`,
-              );
-            }
-          },
-        },
-      ],
-    );
+    if (
+      !(await confirm({
+        title: `${action === "close" ? "Close" : "Reopen"} Pool?`,
+        message: `Are you sure you want to ${action} this pool?`,
+        confirmLabel: action === "close" ? "Close" : "Reopen",
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      if (action === "close") {
+        await closePoolApi(poolId);
+      } else {
+        await reopenPoolApi(poolId);
+      }
+      showSuccessToast(`Pool ${action}ed`);
+      fetchPool();
+    } catch (error: any) {
+      showErrorToast(error.response?.data?.message || `Failed to ${action} pool`);
+    }
   };
 
-  const handleDeletePool = () => {
-    Alert.alert(
-      "Delete Pool?",
-      "This will permanently delete the pool and all its transactions. This action cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deletePoolApi(poolId);
-              Alert.alert("Success", "Pool deleted successfully!");
-              navigation.navigate("PoolList");
-            } catch (error: any) {
-              Alert.alert(
-                "Error",
-                error.response?.data?.message || "Failed to delete pool",
-              );
-            }
-          },
-        },
-      ],
-    );
+  const handleDeletePool = async () => {
+    if (
+      !(await confirm({
+        title: "Delete Pool?",
+        message:
+          "This will permanently delete the pool and all its transactions. This action cannot be undone.",
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await deletePoolApi(poolId);
+      showSuccessToast("Pool deleted");
+      navigation.navigate("PoolList");
+    } catch (error: any) {
+      showErrorToast(error.response?.data?.message || "Failed to delete pool");
+    }
   };
 
-  const handleLeavePool = () => {
-    Alert.alert("Leave Pool?", "Are you sure you want to leave this pool?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Leave",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await leavePoolApi(poolId);
-            Alert.alert("Success", "You left the pool successfully!");
-            navigation.navigate("PoolList");
-          } catch (error: any) {
-            Alert.alert(
-              "Error",
-              error.response?.data?.message || "Failed to leave pool",
-            );
-          }
-        },
-      },
-    ]);
+  const handleLeavePool = async () => {
+    if (
+      !(await confirm({
+        title: "Leave Pool?",
+        message: "Are you sure you want to leave this pool?",
+        confirmLabel: "Leave",
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await leavePoolApi(poolId);
+      showSuccessToast("You left the pool");
+      navigation.navigate("PoolList");
+    } catch (error: any) {
+      showErrorToast(error.response?.data?.message || "Failed to leave pool");
+    }
   };
 
   /**
@@ -679,6 +656,7 @@ const PoolSettingsScreen = ({ route, navigation }: any) => {
               }
             />
           </View>
+          <ToastHost />
         </View>
       </Modal>
     </SafeAreaWrapper>

@@ -1,8 +1,11 @@
 import { useEffect } from "react";
 import * as Updates from "expo-updates";
-import { Alert, Platform } from "react-native";
+import { Platform } from "react-native";
+import { useDialog } from "../contexts/DialogContext";
 
 export function useAppUpdates() {
+  const { showDialog } = useDialog();
+
   useEffect(() => {
     // Skip update checks in development
     if (__DEV__) {
@@ -25,22 +28,21 @@ export function useAppUpdates() {
         await Updates.fetchUpdateAsync();
 
         // Show alert to restart app
-        Alert.alert(
-          "Update Available",
-          "A new version of the app has been downloaded. Would you like to restart now to apply the update?",
-          [
+        showDialog({
+      dismissOnBackdrop: false,
+          title: "Update Available",
+          message:
+            "A new version of the app has been downloaded. Would you like to restart now to apply the update?",
+          actions: [
+            { label: "Later", style: "cancel" },
             {
-              text: "Later",
-              style: "cancel",
-            },
-            {
-              text: "Restart Now",
+              label: "Restart Now",
               onPress: async () => {
                 await Updates.reloadAsync();
               },
             },
           ],
-        );
+        });
       } else {
         console.log("App is up to date");
       }

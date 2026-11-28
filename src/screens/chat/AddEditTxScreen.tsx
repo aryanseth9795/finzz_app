@@ -8,7 +8,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
@@ -16,6 +15,7 @@ import dayjs from "dayjs";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { SafeAreaWrapper, Input, Button } from "../../components/ui";
 import { addTxApi, editTxApi } from "../../api/txApi";
 import { useAppSelector, useAppDispatch } from "../../store";
@@ -37,7 +37,8 @@ import { ITx } from "../../types";
 const AddEditTxScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs, borderRadius: br } = theme;
-  const { showSuccessToast } = useToast();
+  const { showSuccessToast, showErrorToast, showWarningToast } = useToast();
+  const { showDialog } = useDialog();
   const dispatch = useAppDispatch();
   const { user } = useAppSelector((state) => state.auth);
 
@@ -79,7 +80,7 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
     // comparisons, every one of which is false against NaN.
     const parsed = parseAmount(amount);
     if (!parsed.ok) {
-      Alert.alert("Invalid Amount", parsed.message);
+      showWarningToast(parsed.message, "Invalid Amount");
       return;
     }
     const numAmount = parsed.value;
@@ -87,7 +88,7 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
     if (isEditing && editStatus !== "pending" && editStatus !== "rejected") {
       // Pending (stays pending) and rejected (resubmitted) are editable;
       // anything else, i.e. verified, is not.
-      Alert.alert("Cannot Edit", "Verified transactions cannot be edited.");
+      showWarningToast("Verified transactions cannot be edited.", "Cannot Edit");
       return;
     }
 
@@ -103,9 +104,9 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
       (isRefTo(tx?.to, user?._id) ? refId(tx?.from) : refId(tx?.to));
 
     if (!friendId || !user?._id) {
-      Alert.alert(
-        "Cannot Save",
+      showErrorToast(
         "Could not identify the other person in this chat. Please reopen the chat and try again.",
+        "Cannot Save",
       );
       return;
     }
@@ -152,12 +153,12 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
         const latest = latestTxFromError(error);
         if (latest) dispatch(updateTx(latest));
         const alreadyVerified = !!latest && txStatusOf(latest) === "verified";
-        Alert.alert(
-          "Transaction changed",
-          alreadyVerified
+        showDialog({
+          title: "Transaction changed",
+          message: alreadyVerified
             ? `${friendName || "The other person"} already verified this transaction, so it can't be edited.`
             : "This transaction was changed. Please review it and try again.",
-        );
+        });
         try {
           await cacheManager.removeByPrefix(CACHE_KEYS.TRANSACTIONS_PREFIX(chatId));
           await cacheManager.remove(CACHE_KEYS.CHATS);
@@ -171,7 +172,7 @@ const AddEditTxScreen = ({ route, navigation }: any) => {
       const latest = latestTxFromError(error);
       if (isEditing && latest) dispatch(updateTx(latest));
       // Stay on the form so the user's input is not lost.
-      Alert.alert("Could not save", describeError(error));
+      showErrorToast(describeError(error), "Could not save");
     } finally {
       setLoading(false);
     }

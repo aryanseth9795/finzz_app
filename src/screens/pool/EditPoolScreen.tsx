@@ -9,10 +9,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import { getPoolByIdApi, updatePoolApi } from "../../api/poolApi";
 import { IPool } from "../../types";
@@ -22,6 +22,7 @@ const EditPoolScreen = ({ route, navigation }: any) => {
   const { poolId } = route.params;
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
+  const { showSuccessToast, showErrorToast, showWarningToast } = useToast();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -45,7 +46,7 @@ const EditPoolScreen = ({ route, navigation }: any) => {
       }
     } catch (error) {
       logger.error("Failed to fetch pool:", error);
-      Alert.alert("Error", "Failed to load pool details");
+      showErrorToast("Failed to load pool details");
       navigation.goBack();
     } finally {
       setFetchLoading(false);
@@ -54,7 +55,7 @@ const EditPoolScreen = ({ route, navigation }: any) => {
 
   const handleUpdate = async () => {
     if (!name.trim()) {
-      Alert.alert("Error", "Pool name is required");
+      showWarningToast("Pool name is required");
       return;
     }
 
@@ -66,11 +67,10 @@ const EditPoolScreen = ({ route, navigation }: any) => {
         rules: rules.trim() || undefined,
       });
 
-      Alert.alert("Success", "Pool updated successfully!");
+      showSuccessToast("Pool updated");
       navigation.goBack();
     } catch (error: any) {
-      Alert.alert(
-        "Error",
+      showErrorToast(
         error.response?.data?.message || "Failed to update pool",
       );
     } finally {

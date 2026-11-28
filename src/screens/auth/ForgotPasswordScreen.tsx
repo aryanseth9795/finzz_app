@@ -8,13 +8,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Button } from "../../components/ui";
 import { forgotPasswordApi, resetPasswordApi } from "../../api/authApi";
 import { describeError } from "../../api/axios";
+import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { useCooldown } from "../../hooks/useCooldown";
 import { validatePhone } from "../../utils/phone";
 
@@ -23,6 +24,8 @@ type Step = "phone" | "otp" | "password";
 const ForgotPasswordScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
+  const { showErrorToast, showWarningToast, showInfoToast } = useToast();
+  const { showDialog } = useDialog();
 
   const [step, setStep] = useState<Step>("phone");
   const [phone, setPhone] = useState("");
@@ -51,7 +54,7 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
   const handleSendOtp = async () => {
     const phoneCheck = validatePhone(phone);
     if (!phoneCheck.ok) {
-      Alert.alert("Invalid phone number", phoneCheck.message);
+      showWarningToast(phoneCheck.message, "Invalid phone number");
       return;
     }
     setLoadingState(true);
@@ -62,7 +65,7 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
       setStep("otp");
       startCooldown();
     } catch (error) {
-      Alert.alert("Can't reset password", describeError(error));
+      showErrorToast(describeError(error), "Can't reset password");
     } finally {
       setLoadingState(false);
     }
@@ -73,9 +76,9 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
     try {
       await forgotPasswordApi(accountPhone);
       startCooldown();
-      Alert.alert("OTP Sent", `A new OTP has been sent to ${maskedEmail}.`);
+      showInfoToast(`A new OTP has been sent to ${maskedEmail}.`, "OTP sent");
     } catch (error) {
-      Alert.alert("Error", describeError(error));
+      showErrorToast(describeError(error));
     }
   };
 
@@ -110,7 +113,7 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
   const handleVerifyOtp = () => {
     const otpValue = otp.join("");
     if (otpValue.length < 6) {
-      Alert.alert("Invalid OTP", "Please enter all 6 digits");
+      showWarningToast("Please enter all 6 digits", "Invalid OTP");
       return;
     }
     setStep("password");
@@ -120,21 +123,24 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
   const handleResetPassword = async () => {
     const otpValue = otp.join("");
     if (!newPassword || newPassword.length < 6) {
-      Alert.alert("Invalid Password", "Password must be at least 6 characters");
+      showWarningToast("Password must be at least 6 characters", "Invalid password");
       return;
     }
     if (newPassword !== confirmPassword) {
-      Alert.alert("Mismatch", "Passwords do not match");
+      showWarningToast("Passwords do not match", "Mismatch");
       return;
     }
     setLoadingState(true);
     try {
       await resetPasswordApi(accountPhone, otpValue, newPassword);
-      Alert.alert(
-        "Password reset",
-        "Your password has been changed. You have been signed out on all devices — please sign in again.",
-        [{ text: "Sign in", onPress: () => navigation.navigate("Login") }],
-      );
+      showDialog({
+        title: "Password reset",
+        message:
+          "Your password has been changed. You have been signed out on all devices — please sign in again.",
+        actions: [
+          { label: "Sign in", onPress: () => navigation.navigate("Login") },
+        ],
+      });
     } catch (error) {
       /**
        * An invalid OTP is now discovered here, so send the user back to the
@@ -149,7 +155,7 @@ const ForgotPasswordScreen = ({ navigation }: any) => {
         setOtp(["", "", "", "", "", ""]);
         setStep("otp");
       }
-      Alert.alert("Could not reset password", message);
+      showErrorToast(message, "Could not reset password");
     } finally {
       setLoadingState(false);
     }

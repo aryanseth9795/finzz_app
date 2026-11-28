@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Switch,
   Modal,
   TextInput,
@@ -15,6 +14,8 @@ import * as ImagePicker from "expo-image-picker";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast, ToastHost } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { SafeAreaWrapper, Avatar, Button } from "../../components/ui";
 import { uploadAvatarApi, changePasswordApi } from "../../api/authApi";
 import { tokenManager } from "../../utils/tokenManager";
@@ -26,6 +27,8 @@ const AccountScreen = ({ navigation }: any) => {
   const { theme, toggleTheme, isDark } = useTheme();
   const { colors, fontSize: fs, borderRadius: br } = theme;
   const dispatch = useAppDispatch();
+  const { showSuccessToast, showErrorToast, showWarningToast } = useToast();
+  const { confirm } = useDialog();
   const { user } = useAppSelector((state) => state.auth);
   const [uploading, setUploading] = useState(false);
 
@@ -57,50 +60,51 @@ const AccountScreen = ({ navigation }: any) => {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
     } catch (error: any) {
-      Alert.alert(
-        "Upload Failed",
+      showErrorToast(
         error?.response?.data?.message || "Could not upload avatar",
+        "Upload Failed",
       );
     } finally {
       setUploading(false);
     }
   };
 
-  const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: () => signOutOnThisDevice(dispatch, { notifyServer: true }),
-      },
-    ]);
+  const handleLogout = async () => {
+    if (
+      !(await confirm({
+        title: "Logout",
+        message: "Are you sure you want to logout?",
+        confirmLabel: "Logout",
+        destructive: true,
+      }))
+    )
+      return;
+    signOutOnThisDevice(dispatch, { notifyServer: true });
   };
 
   const handleChangePassword = async () => {
     if (!oldPassword || !newPassword || !confirmPassword) {
-      Alert.alert("Error", "All fields are required");
+      showWarningToast("All fields are required");
       return;
     }
     if (newPassword.length < 6) {
-      Alert.alert("Error", "New password must be at least 6 characters");
+      showWarningToast("New password must be at least 6 characters");
       return;
     }
     if (newPassword !== confirmPassword) {
-      Alert.alert("Error", "New passwords do not match");
+      showWarningToast("New passwords do not match");
       return;
     }
     setChangingPwd(true);
     try {
       await changePasswordApi(oldPassword, newPassword);
-      Alert.alert("Success", "Password changed successfully!");
+      showSuccessToast("Password changed");
       setShowChangePwd(false);
       setOldPassword("");
       setNewPassword("");
       setConfirmPassword("");
     } catch (error: any) {
-      Alert.alert(
-        "Error",
+      showErrorToast(
         error?.response?.data?.message || "Failed to change password",
       );
     } finally {
@@ -532,6 +536,7 @@ const AccountScreen = ({ navigation }: any) => {
               style={{ marginTop: 24 }}
             />
           </View>
+          <ToastHost />
         </SafeAreaView>
       </Modal>
     </SafeAreaWrapper>

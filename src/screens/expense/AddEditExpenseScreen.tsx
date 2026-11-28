@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   Platform,
   Keyboard,
 } from "react-native";
@@ -15,6 +14,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { useAppDispatch, useAppSelector } from "../../store";
 import { addExpense, updateExpense } from "../../store/slices/expenseSlice";
 import {
@@ -82,7 +82,8 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
 
   const { theme } = useTheme();
   const { colors, spacing, borderRadius } = theme;
-  const { showSuccessToast } = useToast();
+  const { showSuccessToast, showErrorToast, showWarningToast } = useToast();
+  const { confirm } = useDialog();
   const dispatch = useAppDispatch();
   // Already loaded by the Expenses screen; used to refuse a closed month as
   // soon as it is picked, with no request of its own.
@@ -215,9 +216,9 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
   const refuseClosedMonth = (picked: Date): boolean => {
     const closed = closedLedgerFor(picked, ledgers);
     if (!closed) return false;
-    Alert.alert(
-      `${monthLabel(closed, "short")} is closed`,
+    showWarningToast(
       "Closed months can't take new entries. Pick a date in an open month.",
+      `${monthLabel(closed, "short")} is closed`,
     );
     return true;
   };
@@ -227,7 +228,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
     try {
       await removeExpenseCategory(c);
     } catch (error) {
-      Alert.alert("Could not remove", describeError(error));
+      showErrorToast(describeError(error), "Could not remove");
     }
   };
 
@@ -255,7 +256,7 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
   const handleSave = async () => {
     const parsed = parseAmount(amount);
     if (!parsed.ok) {
-      Alert.alert("Invalid Amount", parsed.message);
+      showWarningToast(parsed.message, "Invalid Amount");
       return;
     }
     if (refuseClosedMonth(date)) return;
@@ -375,9 +376,9 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
         navigation.goBack();
       } catch (error) {
         // Stay on the form. The user keeps what they typed and can retry.
-        Alert.alert(
-          isEditing ? "Could not update" : "Could not save",
+        showErrorToast(
           describeError(error),
+          isEditing ? "Could not update" : "Could not save",
         );
       } finally {
         setSaving(false);
@@ -397,16 +398,15 @@ const AddEditExpenseScreen = ({ route, navigation }: any) => {
 
       if (res.data?.success && res.data.duplicates?.length > 0) {
         const dup = res.data.duplicates[0];
-        Alert.alert(
-          "Possible duplicate",
-          `A similar entry already exists on ${formatDate(dup.date)}:\n` +
+        const addAnyway = await confirm({
+          title: "Possible duplicate",
+          message:
+            `A similar entry already exists on ${formatDate(dup.date)}:\n` +
             `${formatCurrency(dup.amount)}${dup.remarks ? ` — ${dup.remarks}` : ""}\n\n` +
             `Add this one anyway?`,
-          [
-            { text: "Cancel", style: "cancel" },
-            { text: "Add anyway", onPress: () => void submit() },
-          ],
-        );
+          confirmLabel: "Add anyway",
+        });
+        if (addAnyway) void submit();
       } else {
         await submit();
       }

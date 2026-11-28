@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  Alert,
   TextInput,
   Keyboard,
   Platform,
@@ -13,6 +12,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import { SafeAreaWrapper, Button } from "../../components/ui";
 import { deleteAccountApi } from "../../api/authApi";
 import { useAppDispatch } from "../../store";
@@ -45,6 +45,7 @@ const DeleteAccountScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
   const dispatch = useAppDispatch();
+  const { showSuccessToast } = useToast();
 
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -90,8 +91,7 @@ const DeleteAccountScreen = ({ navigation }: any) => {
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert(
-      "Account deleted",
+    showSuccessToast(
       "Your Finzz account and its data have been deleted.",
     );
     await signOutOnThisDevice(dispatch, { notifyServer: false });

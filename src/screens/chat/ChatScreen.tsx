@@ -8,7 +8,6 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
-  Alert,
   ScrollView,
   Modal,
   TextInput,
@@ -18,6 +17,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { formatTxDay } from "../../utils/dates";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast, ToastHost } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { SafeAreaWrapper, Avatar } from "../../components/ui";
 import { getTxnsApi, reviewTxApi, deleteTxApi } from "../../api/txApi";
 import { getChatStatsApi, getChatMonthsApi } from "../../api/statsApi";
@@ -57,6 +58,8 @@ import {
 
 const ChatScreen = ({ route, navigation }: any) => {
   const { theme } = useTheme();
+  const { showErrorToast, showWarningToast } = useToast();
+  const { confirm } = useDialog();
   const { colors, fontSize: fs, borderRadius: br } = theme;
   const dispatch = useAppDispatch();
   const { chatId, chat } = route.params;
@@ -261,18 +264,18 @@ const ChatScreen = ({ route, navigation }: any) => {
     const latest = latestTxFromError(error);
     if (latest) dispatch(updateTx(latest));
     if (isTxConflict(error)) {
-      Alert.alert(
-        "Transaction changed",
+      showWarningToast(
         error?.response?.data?.message ||
           "The amount or details changed after you opened it. Please check it again.",
+        "Transaction changed",
       );
     } else if (latest && error?.response?.status === 400) {
-      Alert.alert(
-        "Already reviewed",
+      showWarningToast(
         "Already reviewed — this transaction was updated.",
+        "Already reviewed",
       );
     } else {
-      Alert.alert("Error", error?.response?.data?.message || fallback);
+      showErrorToast(error?.response?.data?.message || fallback);
     }
     if (latest) {
       try {
@@ -333,27 +336,23 @@ const ChatScreen = ({ route, navigation }: any) => {
     });
   };
 
-  const handleDelete = (txnId: string) => {
-    Alert.alert(
-      "Delete Transaction",
-      "Are you sure you want to delete this rejected transaction?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteTxApi(txnId);
-              dispatch(removeTx(txnId));
-              await invalidateChatCache();
-            } catch (error: any) {
-              await handleTxError(error, "Failed to delete");
-            }
-          },
-        },
-      ],
-    );
+  const handleDelete = async (txnId: string) => {
+    if (
+      !(await confirm({
+        title: "Delete Transaction",
+        message: "Are you sure you want to delete this rejected transaction?",
+        confirmLabel: "Delete",
+        destructive: true,
+      }))
+    )
+      return;
+    try {
+      await deleteTxApi(txnId);
+      dispatch(removeTx(txnId));
+      await invalidateChatCache();
+    } catch (error: any) {
+      await handleTxError(error, "Failed to delete");
+    }
   };
 
   // Helper to get user name
@@ -997,6 +996,7 @@ const ChatScreen = ({ route, navigation }: any) => {
             </View>
           </View>
         </KeyboardAvoidingView>
+        <ToastHost />
       </Modal>
     </SafeAreaWrapper>
   );

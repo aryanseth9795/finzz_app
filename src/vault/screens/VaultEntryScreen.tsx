@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useDialog } from "../../contexts/DialogContext";
 import { useVault } from "../VaultContext";
 import { deleteEntry, groupName } from "../model";
 import { copySecret } from "../clipboard";
@@ -12,6 +13,7 @@ const VaultEntryScreen = ({ navigation, route }: any) => {
   const { theme } = useTheme();
   const { colors } = theme;
   const { showSuccessToast, showErrorToast } = useToast();
+  const { confirm } = useDialog();
   const vault = useVault();
   const entry = vault.data?.entries.find((e) => e.id === route.params?.entryId);
   const [showPassword, setShowPassword] = useState(false);
@@ -33,22 +35,21 @@ const VaultEntryScreen = ({ navigation, route }: any) => {
     }
   };
 
-  const remove = () =>
-    Alert.alert("Delete password?", `"${entry.title}" will be removed from the vault.`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Delete",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await vault.save((d) => deleteEntry(d, entry.id));
-            navigation.goBack();
-          } catch {
-            showErrorToast("Couldn't delete. Please try again.");
-          }
-        },
-      },
-    ]);
+  const remove = async () => {
+    const ok = await confirm({
+      title: "Delete password?",
+      message: `"${entry.title}" will be removed from the vault.`,
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await vault.save((d) => deleteEntry(d, entry.id));
+      navigation.goBack();
+    } catch {
+      showErrorToast("Couldn't delete. Please try again.");
+    }
+  };
 
   const field = (label: string, value: string, opts: { secret?: boolean; multiline?: boolean } = {}) => {
     if (!value) return null;

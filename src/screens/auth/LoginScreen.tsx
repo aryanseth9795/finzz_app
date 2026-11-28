@@ -8,13 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
 import { SafeAreaWrapper, Input, Button } from "../../components/ui";
 import { loginApi } from "../../api/authApi";
 import { describeError } from "../../api/axios";
+import { useToast } from "../../contexts/ToastContext";
 import { validatePhone } from "../../utils/phone";
 import { tokenManager } from "../../utils/tokenManager";
 import { syncCategoriesOnLaunch } from "../../utils/expenseCategorySync";
@@ -25,6 +25,7 @@ const LoginScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
   const dispatch = useAppDispatch();
+  const { showErrorToast } = useToast();
 
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
@@ -68,7 +69,7 @@ const LoginScreen = ({ navigation }: any) => {
       // category list from this reply. Background only, never throws.
       void syncCategoriesOnLaunch(user.expenseCategoriesVersion);
     } catch (error) {
-      Alert.alert("Login Failed", describeError(error));
+      showErrorToast(describeError(error), "Login failed");
     } finally {
       setLoadingState(false);
       dispatch(setLoading(false));

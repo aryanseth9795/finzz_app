@@ -9,16 +9,17 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../contexts/ToastContext";
 import { SafeAreaWrapper } from "../../components/ui";
 import { createPoolApi } from "../../api/poolApi";
 
 const CreatePoolScreen = ({ navigation }: any) => {
   const { theme } = useTheme();
   const { colors, fontSize: fs } = theme;
+  const { showSuccessToast, showErrorToast, showWarningToast } = useToast();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -27,7 +28,7 @@ const CreatePoolScreen = ({ navigation }: any) => {
 
   const handleCreate = async () => {
     if (!name.trim()) {
-      Alert.alert("Error", "Pool name is required");
+      showWarningToast("Pool name is required");
       return;
     }
 
@@ -40,12 +41,11 @@ const CreatePoolScreen = ({ navigation }: any) => {
       });
 
       if (res.data.success) {
-        Alert.alert("Success", "Pool created successfully!");
+        showSuccessToast("Pool created");
         navigation.goBack();
       }
     } catch (error: any) {
-      Alert.alert(
-        "Error",
+      showErrorToast(
         error.response?.data?.message || "Failed to create pool",
       );
     } finally {

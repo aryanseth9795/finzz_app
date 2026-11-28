@@ -6,6 +6,7 @@ import { Provider } from "react-redux";
 import { store } from "./src/store";
 import { ThemeProvider, useTheme } from "./src/contexts/ThemeContext";
 import { ToastProvider } from "./src/contexts/ToastContext";
+import { DialogProvider } from "./src/contexts/DialogContext";
 import RootNavigator from "./src/navigation/RootNavigator";
 
 // Separate component to access theme context for StatusBar
@@ -14,8 +15,10 @@ const ThemedApp = () => {
 
   return (
     <ToastProvider>
-      <StatusBar style={isDark ? "light" : "dark"} />
-      <RootNavigator />
+      <DialogProvider>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <RootNavigator />
+      </DialogProvider>
     </ToastProvider>
   );
 };
